@@ -65,7 +65,11 @@
   "common": {
     "success": "Succès.",
     "error": "Erreur.",
-    "fail": "Échec."
+    "fail": "Échec.",
+    "currency": {
+      "FC": "FC",
+      "USD": "USD"
+    }
   },
   "shop": {
     "nameRequired": "Le nom de la boutique est requis.",
@@ -191,7 +195,10 @@
     "invalidOrderStatus": "Transition de statut de commande non autorisée : {0}.",
     "categoryDeleteForbidden": "Impossible de supprimer cette catégorie car elle est liée à des produits ou des sous-catégories.",
     "brandDeleteForbidden": "Impossible de supprimer cette marque car elle est liée à des produits.",
-    "cannotMessageNonPendingOffer": "Vous ne pouvez pas ajouter de message à une offre non en attente."
+    "cannotMessageNonPendingOffer": "Vous ne pouvez pas ajouter de message à une offre non en attente.",
+    "currencyRateNotFound": "Taux de conversion introuvable.",
+    "currencyRateUpdated": "Taux de conversion mis à jour avec succès.",
+    "invalidCurrencyRate": "Le taux de conversion doit être un nombre positif."
   },
   "cart": {
     "notFound": "Panier introuvable.",
@@ -228,7 +235,8 @@
     "cancelled": "Commande annulée avec succès.",
     "cannotCancel": "Impossible d'annuler une commande dont le statut est '{0}'.",
     "invalidAddressId": "ID d'adresse invalide ou adresse introuvable.",
-    "archiveForbidden": "Impossible d'archiver une commande dont le statut est '{0}'."
+    "archiveForbidden": "Impossible d'archiver une commande dont le statut est '{0}'.",
+    "invalidCurrency": "Devise invalide fournie. Devise doit être 'FC' ou 'USD'."
   },
   "seller": {
     "dashboardStats": "Statistiques du tableau de bord du vendeur.",

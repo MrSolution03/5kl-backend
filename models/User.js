@@ -69,14 +69,18 @@ const userSchema = new mongoose.Schema({
     },
     resetPasswordToken: String,
     resetPasswordExpires: Date,
-    lastViewedProducts: [{ // AJOUTÉ : Pour les recommandations
+    lastViewedProducts: [{
         product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
         timestamp: { type: Date, default: Date.now }
     }],
-    // AJOUTÉ : Champs pour l'archivage de l'historique
     orderHistoryArchivedAt: Date,
-    offerHistoryArchivedAt: Date
-
+    offerHistoryArchivedAt: Date,
+    preferredCurrency: { // CHAMP AJOUTÉ : Pour la devise préférée de l'utilisateur
+        type: String,
+        uppercase: true,
+        enum: ['FC', 'USD'], // Ajoutez d'autres devises si supportées
+        default: process.env.DEFAULT_CURRENCY || 'FC'
+    }
 }, {
     timestamps: true
 });
@@ -107,6 +111,5 @@ userSchema.methods.getResetPasswordToken = function() {
     this.resetPasswordExpires = Date.now() + 60 * 60 * 1000; // 1 heure
     return resetToken;
 };
-
 
 module.exports = mongoose.model('User', userSchema);

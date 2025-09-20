@@ -3,10 +3,13 @@ const Product = require('../models/Product');
 const Shop = require('../models/Shop');
 const Category = require('../models/Category');
 const Brand = require('../models/Brand');
-const User = require('../models/User'); // AJOUTÉ : pour la gestion des produits récemment consultés
-const Joi = require('joi');
+const User = require('../models/User');
+const CurrencyRate = require('../models/CurrencyRate'); // AJOUTÉ : Pour récupérer le taux de change
 const AppError = require('../utils/appError');
+const Joi = require('joi');
 const { upload, cloudinary } = require('../utils/cloudinary');
+const { SUPPORTED_CURRENCIES } = require('../utils/i18n'); // AJOUTÉ pour la validation de devise
+
 
 // --- Schemas de Validation Joi (inchangés) ---
 
@@ -14,7 +17,7 @@ const productSchema = Joi.object({
     name: Joi.string().trim().min(3).max(255).required(),
     description: Joi.string().trim().min(10).max(2000).required(),
     price: Joi.number().min(0.01).required(),
-    category: Joi.string().hex().length(24).required(), // MongoDB ObjectId
+    category: Joi.string().hex().length(24).required(),
     subCategory: Joi.string().hex().length(24).optional().allow(null, ''),
     brand: Joi.string().hex().length(24).optional().allow(null, ''),
     stock: Joi.number().integer().min(0).required(),
@@ -38,6 +41,26 @@ const brandSchema = Joi.object({
     description: Joi.string().trim().max(500).optional().allow(null, ''),
     logo: Joi.string().uri().optional().allow(null, '')
 });
+
+// --- Fonctions Utilitaires pour la Devise ---
+async function convertPrice(priceFC, targetCurrency, req) {
+    if (targetCurrency === 'FC' || !targetCurrency) {
+        return priceFC;
+    }
+    if (targetCurrency === 'USD') {
+        const currencyRate = await CurrencyRate.findOne();
+        if (!currencyRate || !currencyRate.USD_TO_FC_RATE) {
+            // Créer un taux par défaut si inexistant
+            const defaultRate = 2700;
+            await CurrencyRate.create({ USD_TO_FC_RATE: defaultRate, lastUpdatedBy: req.user ? req.user.id : null });
+            return priceFC / defaultRate;
+        }
+        return priceFC / currencyRate.USD_TO_FC_RATE;
+    }
+    // Devise non supportée, retourner l'erreur ou la devise par défaut
+    throw new AppError('order.invalidCurrency', 400); // Réutiliser une clé d'erreur existante ou en créer une nouvelle
+}
+
 
 // --- Fonctions des Contrôleurs ---
 
@@ -91,7 +114,7 @@ exports.createProduct = async (req, res, next) => {
         const product = await Product.create({
             name,
             description,
-            price,
+            price, // Le prix est toujours stocké en FC par défaut (devise de base)
             category,
             subCategory,
             brand,
@@ -116,14 +139,19 @@ exports.createProduct = async (req, res, next) => {
 };
 
 /**
- * @desc    Obtenir tous les produits (avec filtres, recherche, pagination, tri)
- * @route   GET /api/products
+ * @desc    Obtenir tous les produits (avec filtres, recherche, pagination, tri, conversion de devise)
+ * @route   GET /api/products?targetCurrency=USD
  * @access  Public
  */
 exports.getProducts = async (req, res, next) => {
     try {
         let query = {};
-        const { name, category, subCategory, brand, shop, minPrice, maxPrice, isAvailable, sortBy, page = 1, limit = 10, ...filterAttributes } = req.query;
+        const { name, category, subCategory, brand, shop, minPrice, maxPrice, isAvailable, sortBy, page = 1, limit = 10, targetCurrency = 'FC', ...filterAttributes } = req.query;
+
+        // Validation de la devise cible
+        if (!SUPPORTED_CURRENCIES.includes(targetCurrency)) {
+            return next(new AppError('order.invalidCurrency', 400));
+        }
 
         if (name) {
             query.$text = { $search: name };
@@ -153,6 +181,9 @@ exports.getProducts = async (req, res, next) => {
             query.shop = shp._id;
         }
 
+        // Les filtres minPrice/maxPrice doivent toujours être dans la devise de base (FC) ou nécessiter une conversion
+        // Pour simplifier, nous supposons que minPrice/maxPrice sont toujours fournis dans la devise de base FC.
+        // Si le frontend fournit minPrice/maxPrice dans une autre devise, il doit le convertir avant d'appeler l'API.
         if (minPrice || maxPrice) {
             query.price = {};
             if (minPrice) query.price.$gte = parseFloat(minPrice);
@@ -165,7 +196,7 @@ exports.getProducts = async (req, res, next) => {
 
         const attributeFilters = {};
         for (const key in filterAttributes) {
-            if (!['page', 'limit', 'sortBy', 'name', 'category', 'subCategory', 'brand', 'shop', 'minPrice', 'maxPrice', 'isAvailable'].includes(key)) {
+            if (!['page', 'limit', 'sortBy', 'name', 'category', 'subCategory', 'brand', 'shop', 'minPrice', 'maxPrice', 'isAvailable', 'targetCurrency'].includes(key)) {
                 query[`attributes.key`] = key;
                 query[`attributes.value`] = filterAttributes[key];
             }
@@ -198,13 +229,24 @@ exports.getProducts = async (req, res, next) => {
 
         const totalProducts = await Product.countDocuments(query);
 
+        // Appliquer la conversion de devise à chaque produit
+        const convertedProducts = await Promise.all(products.map(async (product) => {
+            const convertedPrice = await convertPrice(product.price, targetCurrency, req);
+            return {
+                ...product.toObject(),
+                price: parseFloat(convertedPrice.toFixed(2)), // Arrondir à 2 décimales
+                currency: targetCurrency
+            };
+        }));
+
+
         res.status(200).json({
             success: true,
-            count: products.length,
+            count: convertedProducts.length,
             total: totalProducts,
             page: pageNum,
             pages: Math.ceil(totalProducts / limitNum),
-            data: products,
+            data: convertedProducts,
         });
     } catch (error) {
         next(error);
@@ -212,12 +254,19 @@ exports.getProducts = async (req, res, next) => {
 };
 
 /**
- * @desc    Obtenir un produit par ID
- * @route   GET /api/products/:id
+ * @desc    Obtenir un produit par ID (avec conversion de devise)
+ * @route   GET /api/products/:id?targetCurrency=USD
  * @access  Public
  */
 exports.getProductById = async (req, res, next) => {
     try {
+        const { targetCurrency = 'FC' } = req.query;
+
+        // Validation de la devise cible
+        if (!SUPPORTED_CURRENCIES.includes(targetCurrency)) {
+            return next(new AppError('order.invalidCurrency', 400));
+        }
+
         const product = await Product.findById(req.params.id)
             .populate('category', 'name slug')
             .populate('subCategory', 'name slug')
@@ -228,26 +277,31 @@ exports.getProductById = async (req, res, next) => {
             return next(new AppError('product.notFound', 404));
         }
 
-        // // AJOUTÉ : Mettre à jour les produits récemment consultés de l'utilisateur (si l'utilisateur est connecté)
-        if (req.user && req.user.id) { // req.user est disponible grâce au middleware 'protect'
-            const user = await User.findById(req.user.id); // Récupère le document utilisateur complet
+        // Mettre à jour les produits récemment consultés de l'utilisateur (si l'utilisateur est connecté)
+        if (req.user && req.user.id) {
+            const user = await User.findById(req.user.id);
             if (user) {
-                // Supprimer l'ancien enregistrement du même produit (si déjà consulté)
                 user.lastViewedProducts = user.lastViewedProducts.filter(
                     item => item.product.toString() !== product._id.toString()
                 );
-                // Ajouter le produit en haut de la liste
                 user.lastViewedProducts.push({ product: product._id, timestamp: Date.now() });
-                // Limiter le tableau à N éléments (ex: 10 derniers produits consultés)
                 user.lastViewedProducts = user.lastViewedProducts.slice(-10);
-                await user.save({ validateBeforeSave: false }); // Éviter la validation du password qui est select: false
+                await user.save({ validateBeforeSave: false });
             }
         }
-        // FIN DE L'AJOUT //
+
+        // Appliquer la conversion de devise
+        const convertedPrice = await convertPrice(product.price, targetCurrency, req);
+
+        const convertedProduct = {
+            ...product.toObject(),
+            price: parseFloat(convertedPrice.toFixed(2)),
+            currency: targetCurrency
+        };
 
         res.status(200).json({
             success: true,
-            data: product,
+            data: convertedProduct,
         });
     } catch (error) {
         next(error);

@@ -12,14 +12,12 @@ const cartItemSchema = new mongoose.Schema({
         required: true,
         min: 1
     },
-    // Le prix du produit au moment de l'ajout au panier.
-    // Si un prix négocié est accepté, ce sera ce prix.
-    priceAtAddToCart: {
+    priceAtAddToCart: { // Prix de l'article dans la devise du panier
         type: Number,
         required: true
     }
 }, {
-    _id: false // Pas besoin d'un _id pour chaque sous-document d'article du panier
+    _id: false
 });
 
 const cartSchema = new mongoose.Schema({
@@ -27,19 +25,24 @@ const cartSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
-        unique: true // Un seul panier par utilisateur
+        unique: true
     },
     items: [cartItemSchema],
-    totalPrice: { // Calculé dynamiquement ou mis à jour par le backend
+    totalPrice: {
         type: Number,
         default: 0,
         min: 0
     },
+    currency: { // AJOUTÉ
+        type: String,
+        uppercase: true,
+        enum: ['FC', 'USD'],
+        default: process.env.DEFAULT_CURRENCY || 'FC'
+    }
 }, {
     timestamps: true
 });
 
-// Middleware ou méthode pour mettre à jour le totalPrice avant la sauvegarde
 cartSchema.pre('save', function (next) {
     this.totalPrice = this.items.reduce((acc, item) => acc + (item.quantity * item.priceAtAddToCart), 0);
     next();

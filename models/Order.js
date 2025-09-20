@@ -12,7 +12,7 @@ const orderItemSchema = new mongoose.Schema({
         required: true,
         min: 1
     },
-    pricePaid: { // Le prix final réellement payé pour cet article (peut être négocié)
+    pricePaid: { // Le prix final réellement payé pour cet article
         type: Number,
         required: true,
         min: 0
@@ -33,6 +33,16 @@ const orderSchema = new mongoose.Schema({
         required: true,
         min: 0
     },
+    currency: { // AJOUTÉ : La devise utilisée pour cette commande
+        type: String,
+        enum: ['FC', 'USD'],
+        default: 'FC'
+    },
+    exchangeRateUsed: { // AJOUTÉ : Le taux de change USD_TO_FC_RATE au moment de la commande
+        type: Number,
+        min: 1,
+        default: 1 // Si FC par défaut, le taux est 1 si on considère FC comme base
+    },
     shippingAddress: { // Adresse de livraison au moment de la commande
         street: { type: String, required: true },
         city: { type: String, required: true },
@@ -47,9 +57,13 @@ const orderSchema = new mongoose.Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['pay_on_delivery'], // Pour l'instant, uniquement pay-on-delivery
+        enum: ['pay_on_delivery'],
         default: 'pay_on_delivery',
         required: true
+    },
+    isPaid: { // AJOUTÉ : Pour le mode pay-on-delivery, sera mis à jour après la livraison par l'admin
+        type: Boolean,
+        default: false
     },
     adminNotes: { // Raison de rejet, commentaires de l'admin
         type: String
@@ -59,12 +73,7 @@ const orderSchema = new mongoose.Schema({
         timestamp: { type: Date, default: Date.now },
         location: { type: String } // Optionnel: lieu de la mise à jour
     }],
-    isPaid: { // Pour le mode pay-on-delivery, sera mis à jour après la livraison
-        type: Boolean,
-        default: false
-    },
-    // Référence à l'offre si la commande est le résultat d'une négociation
-    offer: {
+    offer: { // Référence à l'offre si la commande est le résultat d'une négociation
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Offer'
     }

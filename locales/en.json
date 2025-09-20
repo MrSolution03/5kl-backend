@@ -65,7 +65,11 @@
   "common": {
     "success": "Success.",
     "error": "Error.",
-    "fail": "Fail."
+    "fail": "Fail.",
+    "currency": {
+      "FC": "FC",
+      "USD": "USD"
+    }
   },
   "shop": {
     "nameRequired": "Shop name is required.",
@@ -191,7 +195,10 @@
     "invalidOrderStatus": "Unauthorized order status transition: {0}.",
     "categoryDeleteForbidden": "Cannot delete this category because it is linked to products or sub-categories.",
     "brandDeleteForbidden": "Cannot delete this brand because it is linked to products.",
-    "cannotMessageNonPendingOffer": "You cannot add a message to a non-pending offer."
+    "cannotMessageNonPendingOffer": "You cannot add a message to a non-pending offer.",
+    "currencyRateNotFound": "Currency exchange rate not found.",
+    "currencyRateUpdated": "Currency exchange rate updated successfully.",
+    "invalidCurrencyRate": "The exchange rate must be a positive number."
   },
   "cart": {
     "notFound": "Cart not found.",
@@ -228,7 +235,8 @@
     "cancelled": "Order cancelled successfully.",
     "cannotCancel": "Cannot cancel an order with status '{0}'.",
     "invalidAddressId": "Invalid address ID or address not found.",
-    "archiveForbidden": "Cannot archive an order with status '{0}'."
+    "archiveForbidden": "Cannot archive an order with status '{0}'.",
+    "invalidCurrency": "Invalid currency provided. Currency must be 'FC' or 'USD'."
   },
   "seller": {
     "dashboardStats": "Seller dashboard statistics.",

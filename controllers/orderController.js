@@ -3,13 +3,16 @@ const Order = require('../models/Order');
 const Cart = require('../models/Cart');
 const User = require('../models/User');
 const Product = require('../models/Product');
+const CurrencyRate = require('../models/CurrencyRate'); // AJOUTÉ : Pour récupérer le taux de change
 const AppError = require('../utils/appError');
 const Joi = require('joi');
+const { SUPPORTED_CURRENCIES } = require('../utils/i18n'); // AJOUTÉ pour la validation de devise
 
 // --- Schemas de Validation Joi ---
 
 const createOrderSchema = Joi.object({
-    shippingAddressId: Joi.string().hex().length(24).required() // L'ID d'une adresse existante de l'utilisateur
+    shippingAddressId: Joi.string().hex().length(24).required(),
+    currency: Joi.string().valid(...SUPPORTED_CURRENCIES).default('FC').optional() // AJOUTÉ : Devise choisie par l'acheteur
 }).options({ stripUnknown: true });
 
 // --- Fonctions des Contrôleurs ---
@@ -28,7 +31,7 @@ exports.createOrder = async (req, res, next) => {
             return next(error);
         }
 
-        const { shippingAddressId } = value;
+        const { shippingAddressId, currency = 'FC' } = value; // Par défaut FC
 
         const user = await User.findById(req.user.id);
         if (!user) {
@@ -46,37 +49,54 @@ exports.createOrder = async (req, res, next) => {
             return next(new AppError('order.cartEmpty', 400));
         }
 
+        let exchangeRate = 1; // Par défaut, 1 FC = 1 FC
+        if (currency === 'USD') {
+            // Si la devise est USD, nous devons convertir les prix qui sont en FC (prix produit par défaut)
+            const currentRateDoc = await CurrencyRate.findOne();
+            if (!currentRateDoc || !currentRateDoc.USD_TO_FC_RATE) {
+                return next(new AppError('admin.currencyRateNotFound', 500)); // L'admin doit définir un taux
+            }
+            exchangeRate = currentRateDoc.USD_TO_FC_RATE;
+        }
+
         let totalAmount = 0;
         const orderItems = [];
-        const productsToUpdate = []; // Pour décrémenter le stock
+        const productsToUpdate = [];
 
         for (const cartItem of cart.items) {
             const product = cartItem.product;
 
             if (!product || !product.isAvailable || product.stock < cartItem.quantity) {
-                // Si le produit n'est pas disponible ou stock insuffisant
                 return next(new AppError('order.productOutOfStock', 400, [product ? product.name : 'Unknown', product ? product.stock : 0, cartItem.quantity]));
             }
+
+            let priceForOrder = cartItem.priceAtAddToCart; // Prix du produit au moment de l'ajout au panier, en FC
+
+            // Si la commande est en USD, convertir le prix payé
+            if (currency === 'USD') {
+                priceForOrder = priceForOrder / exchangeRate; // Convertir FC en USD
+            }
+             // Si la commande est en FC, le prix est déjà en FC
 
             orderItems.push({
                 product: product._id,
                 quantity: cartItem.quantity,
-                pricePaid: cartItem.priceAtAddToCart // Utiliser le prix au moment de l'ajout au panier
+                pricePaid: priceForOrder // Le prix stocké sera dans la devise de la commande
             });
-            totalAmount += cartItem.quantity * cartItem.priceAtAddToCart;
+            totalAmount += cartItem.quantity * priceForOrder;
 
-            // Préparer la décrémentation du stock
             productsToUpdate.push({
                 id: product._id,
                 newStock: product.stock - cartItem.quantity
             });
         }
 
-        // Créer la commande
         const order = await Order.create({
             user: req.user.id,
             items: orderItems,
             totalAmount: totalAmount,
+            currency: currency, // Enregistrer la devise choisie
+            exchangeRateUsed: exchangeRate, // Enregistrer le taux utilisé
             shippingAddress: {
                 street: shippingAddress.street,
                 city: shippingAddress.city,
@@ -84,15 +104,13 @@ exports.createOrder = async (req, res, next) => {
                 zipCode: shippingAddress.zipCode,
                 country: shippingAddress.country
             },
-            status: 'pending_admin_approval', // Par défaut
-            paymentMethod: 'pay_on_delivery', // Pour l'instant, seulement pay-on-delivery
+            status: 'pending_admin_approval',
+            paymentMethod: 'pay_on_delivery',
             deliveryTracking: [{ status: 'pending_admin_approval' }]
         });
 
-        // Vider le panier après la commande
         await Cart.deleteOne({ user: req.user.id });
 
-        // Décrémenter les stocks des produits
         for (const prod of productsToUpdate) {
             await Product.findByIdAndUpdate(prod.id, { stock: prod.newStock });
         }
@@ -118,7 +136,7 @@ exports.createOrder = async (req, res, next) => {
 exports.getOrders = async (req, res, next) => {
     try {
         const orders = await Order.find({ user: req.user.id })
-            .populate('items.product', 'name price images shop'); // Populate les produits
+            .populate('items.product', 'name price images shop');
 
         res.status(200).json({
             success: true,
@@ -166,7 +184,6 @@ exports.cancelOrder = async (req, res, next) => {
             return next(new AppError('order.notFound', 404));
         }
 
-        // Autoriser l'annulation uniquement si la commande est en attente d'approbation ou acceptée
         if (order.status !== 'pending_admin_approval' && order.status !== 'accepted') {
             return next(new AppError('order.cannotCancel', 400, [order.status]));
         }
@@ -177,9 +194,12 @@ exports.cancelOrder = async (req, res, next) => {
 
         // TODO: Notifier l'administrateur de l'annulation
         // TODO: Restaurer les stocks des produits si la commande avait déjà été 'accepted'
-        // Si les stocks sont décrémentés à la création de la commande (comme ici),
-        // ils devraient être restaurés si la commande est annulée APRÈS avoir été 'accepted'.
-        // Si elle est annulée 'pending_admin_approval', ils n'ont pas encore été décrémentés (car l'admin les décrémente à l'acceptation).
+        //       et les stocks décrémentés à l'acceptation (actuellement, stocks décrémentés à la création)
+        //       Donc, si la commande est annulée, nous devons restaurer le stock.
+        for (const item of order.items) {
+            await Product.findByIdAndUpdate(item.product, { $inc: { stock: item.quantity } });
+        }
+
 
         res.status(200).json({
             success: true,

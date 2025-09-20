@@ -6,11 +6,14 @@ const Order = require('../models/Order');
 const Offer = require('../models/Offer');
 const Category = require('../models/Category');
 const Brand = require('../models/Brand');
+const CurrencyRate = require('../models/CurrencyRate'); // AJOUTÉ : Modèle pour les taux de change
 const AppError = require('../utils/appError');
 const Joi = require('joi');
 const { cloudinary } = require('../utils/cloudinary');
+const { SUPPORTED_CURRENCIES } = require('../utils/i18n'); // AJOUTÉ pour validation des devises
 
-// --- Schemas de Validation Joi (inchangés) ---
+// --- Schemas de Validation Joi ---
+
 const updateUserRoleSchema = Joi.object({
     roles: Joi.array().items(Joi.string().valid('buyer', 'seller', 'admin')).min(1).required()
 });
@@ -50,10 +53,20 @@ const brandUpdateSchema = Joi.object({
     logo: Joi.string().uri().optional().allow(null, '')
 });
 
+// AJOUTÉ : Schéma pour la mise à jour du taux de change
+const updateCurrencyRateSchema = Joi.object({
+    USD_TO_FC_RATE: Joi.number().min(1).required()
+});
+
+// AJOUTÉ : Schéma pour marquer une commande comme payée
+const markOrderAsPaidSchema = Joi.object({
+    isPaid: Joi.boolean().required()
+});
+
 
 // --- Fonctions des Contrôleurs ---
 
-// --- Gestion des utilisateurs ---
+// --- Gestion des utilisateurs (inchangé) ---
 
 /**
  * @desc    Obtenir tous les utilisateurs
@@ -153,7 +166,7 @@ exports.deleteUser = async (req, res, next) => {
             return next(new AppError('admin.userNotFound', 404));
         }
 
-        // TODO: Implémenter la logique de suppression en cascade
+        // TODO: Implémenter la logique de suppression en cascade pour les données liées
         await user.deleteOne();
 
         res.status(200).json({
@@ -166,7 +179,7 @@ exports.deleteUser = async (req, res, next) => {
 };
 
 
-// --- Gestion des boutiques ---
+// --- Gestion des boutiques (inchangé) ---
 
 /**
  * @desc    Obtenir toutes les boutiques (y compris celles non approuvées)
@@ -439,7 +452,7 @@ exports.updateOrderStatus = async (req, res, next) => {
         if (value.adminNotes) {
             order.adminNotes = value.adminNotes;
         }
-        order.deliveryTracking.push({ status: value.status, location: value.adminNotes }); // adminNotes peut être utilisé pour la localisation de la livraison
+        order.deliveryTracking.push({ status: value.status, location: value.adminNotes });
         await order.save();
 
         // TODO: Notifier l'utilisateur des changements de statut
@@ -454,8 +467,48 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 };
 
+/**
+ * @desc    Marquer une commande comme payée
+ * @route   PUT /api/admin/orders/:id/mark-as-paid
+ * @access  Private (Admin)
+ */
+exports.markOrderAsPaid = async (req, res, next) => {
+    try {
+        const { error, value } = markOrderAsPaidSchema.validate(req.body);
+        if (error) {
+            error.statusCode = 400;
+            error.isJoi = true;
+            return next(error);
+        }
 
-// --- Gestion des offres de prix ---
+        const order = await Order.findById(req.params.id);
+        if (!order) {
+            return next(new AppError('admin.orderNotFound', 404));
+        }
+
+        // Seules les commandes livrées peuvent être marquées comme payées dans un système P.O.D.
+        if (order.status !== 'delivered') {
+            return next(new AppError('admin.cannotMarkAsPaidNotDelivered', 400, [order.status])); // Nouvelle clé
+        }
+        if (order.isPaid && value.isPaid) {
+            return next(new AppError('admin.orderAlreadyPaid', 400)); // Nouvelle clé
+        }
+
+        order.isPaid = value.isPaid; // True or false
+        await order.save();
+
+        res.status(200).json({
+            success: true,
+            message: value.isPaid ? req.t('admin.orderMarkedAsPaid') : req.t('admin.orderMarkedAsUnpaid'), // Nouvelles clés
+            data: order
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+// --- Gestion des offres de prix (inchangé) ---
 
 /**
  * @desc    Obtenir toutes les offres (y compris celles en attente)
@@ -635,7 +688,7 @@ exports.addAdminMessageToOffer = async (req, res, next) => {
         }
 
         if (offer.status !== 'pending') {
-            return next(new AppError('admin.offerAlreadyAcceptedOrRejected', 400, [req.t('admin.cannotMessageNonPendingOffer')])); // Nouvelle clé
+            return next(new AppError('admin.offerAlreadyAcceptedOrRejected', 400, [req.t('admin.cannotMessageNonPendingOffer')]));
         }
 
         const newMessage = {
@@ -664,7 +717,7 @@ exports.addAdminMessageToOffer = async (req, res, next) => {
 };
 
 
-// --- Gestion des catégories (update/delete - create est dans productController) ---
+// --- Gestion des catégories (update/delete - create est dans productController) (inchangé) ---
 
 /**
  * @desc    Mettre à jour une catégorie
@@ -743,7 +796,7 @@ exports.deleteCategory = async (req, res, next) => {
 };
 
 
-// --- Gestion des marques (update/delete - create est dans productController) ---
+// --- Gestion des marques (update/delete - create est dans productController) (inchangé) ---
 
 /**
  * @desc    Mettre à jour une marque
@@ -782,7 +835,7 @@ exports.updateBrand = async (req, res, next) => {
     } catch (error) {
         next(error);
     }
-};
+    };
 
 /**
  * @desc    Supprimer une marque
@@ -806,6 +859,67 @@ exports.deleteBrand = async (req, res, next) => {
         res.status(200).json({
             success: true,
             message: req.t('admin.brandDeleted')
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// --- AJOUTÉ : Gestion des Taux de Change ---
+
+/**
+ * @desc    Obtenir le taux de conversion USD_TO_FC_RATE
+ * @route   GET /api/admin/currency-rate
+ * @access  Private (Admin)
+ */
+exports.getCurrencyRate = async (req, res, next) => {
+    try {
+        // Crée le document si inexistant, sinon le récupère
+        let currencyRate = await CurrencyRate.findOne();
+        if (!currencyRate) {
+            currencyRate = await CurrencyRate.create({ USD_TO_FC_RATE: 2700, lastUpdatedBy: req.user.id }); // Taux par défaut
+        }
+
+        res.status(200).json({
+            success: true,
+            data: currencyRate
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Mettre à jour le taux de conversion USD_TO_FC_RATE
+ * @route   PUT /api/admin/currency-rate
+ * @access  Private (Admin)
+ */
+exports.updateCurrencyRate = async (req, res, next) => {
+    try {
+        const { error, value } = updateCurrencyRateSchema.validate(req.body);
+        if (error) {
+            error.statusCode = 400;
+            error.isJoi = true;
+            return next(error);
+        }
+
+        let currencyRate = await CurrencyRate.findOne();
+        if (!currencyRate) {
+            // Si le document n'existe pas, le créer et y appliquer la mise à jour
+            currencyRate = await CurrencyRate.create({
+                USD_TO_FC_RATE: value.USD_TO_FC_RATE,
+                lastUpdatedBy: req.user.id
+            });
+        } else {
+            currencyRate.USD_TO_FC_RATE = value.USD_TO_FC_RATE;
+            currencyRate.lastUpdatedBy = req.user.id;
+            await currencyRate.save();
+        }
+
+        res.status(200).json({
+            success: true,
+            message: req.t('admin.currencyRateUpdated'),
+            data: currencyRate
         });
     } catch (error) {
         next(error);

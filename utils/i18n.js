@@ -4,6 +4,7 @@ const path = require('path');
 
 const locales = {};
 const DEFAULT_LOCALE = 'fr'; // Français par défaut
+const SUPPORTED_CURRENCIES = ['FC', 'USD']; // AJOUTÉ : Devises supportées
 
 // Fonction pour charger toutes les locales
 const loadLocales = () => {
@@ -36,22 +37,21 @@ const translate = (locale, key, args = []) => {
         if (value && typeof value === 'object' && value.hasOwnProperty(k)) {
             value = value[k];
         } else {
-            // Clé non trouvée, retourner la clé elle-même ou un message d'erreur générique
             console.warn(`Translation key '${key}' not found for locale '${locale}'`);
-            return `[${key}]`; // Ou un message par défaut comme `Translation missing for ${key}`
+            return `[${key}]`;
         }
     }
 
     if (typeof value === 'string') {
-        // Remplacer les placeholders (ex: {0}, {1}) par les arguments
         return args.reduce((acc, arg, index) => acc.replace(`{${index}}`, arg), value);
     }
 
-    return `[${key}]`; // Si la valeur n'est pas une chaîne
+    return `[${key}]`;
 };
 
 module.exports = {
     translate,
     DEFAULT_LOCALE,
-    SUPPORTED_LOCALES: Object.keys(locales)
+    SUPPORTED_LOCALES: Object.keys(locales),
+    SUPPORTED_CURRENCIES // AJOUTÉ
 };
