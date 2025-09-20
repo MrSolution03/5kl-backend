@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Documentation de l'API Backend 5KL (Mise à Jour)</title>
+  <style>
+    /* ========= Global / Reset ========= */
+    :root{
+      --bg:#0b0c10;             /* canvas bg */
+      --ink:#0f172a;            /* text */
+      --muted:#475569;          /* secondary text */
+      --card:#ffffff;           /* card */
+      --ring:#0ea5e9;           /* accent */
+      --soft:#e2e8f0;           /* borders */
+      --soft-2:#f1f5f9;         /* light bg */
+      --success:#16a34a;        /* success */
+      --danger:#ef4444;         /* error */
+      --warn:#f59e0b;           /* warning */
+      --code:#0b1220;           /* code bg */
+      --badge:#e0f2fe;          /* badge bg */
+      --badge-ink:#0369a1;      /* badge text */
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans:  Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      --radius:16px;
+      --radius-sm:12px;
+      --radius-xs:10px;
+      --shadow:0 10px 30px rgba(2,6,23,.08), 0 3px 12px rgba(2,6,23,.06);
+      --ring-shadow:0 0 0 3px rgba(14,165,233,.25);
+      --content: 980px;
+    }
+    *,*::before,*::after{ box-sizing:border-box; }
+    html,body{ margin:0; padding:0; background:var(--bg); }
+    body{ font-family:var(--sans); color:var(--ink); line-height:1.55; }
+    a{ color:var(--ring); text-decoration:none; }
+    a:hover{ text-decoration:underline; }
+
+    /* ========= Layout ========= */
+    .wrap{ max-width:var(--content); margin:40px auto 80px; padding:0 24px; }
+    .masthead{ background:linear-gradient( to bottom right, #e6f6ff, #fff ); border:1px solid var(--soft); box-shadow:var(--shadow); padding:32px 28px; border-radius:var(--radius); }
+    .title{ display:flex; align-items:flex-start; gap:16px; }
+    .title h1{ margin:0; font-size:32px; letter-spacing:.2px; }
+    .meta{ display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; color:var(--muted); }
+    .badge{ background:var(--badge); color:var(--badge-ink); padding:6px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid #bae6fd; }
+    .note{ background:var(--soft-2); border:1px solid var(--soft); border-left:4px solid var(--ring); padding:12px 14px; border-radius:var(--radius-sm); }
+
+    .toc.frame{ margin-top:18px; }
+    .toc ol{ margin:8px 0 0 18px; padding:0; }
+    .toc li{ margin:6px 0; }
+
+    .frame{ background:var(--card); border:1px solid var(--soft); border-radius:var(--radius); box-shadow:var(--shadow); padding:24px; margin-top:18px; }
+    .frame h2{ margin-top:0; font-size:22px; }
+    .frame h3{ margin-top:28px; margin-bottom:8px; font-size:18px; }
+
+    .keyline{ border-top:1px dashed var(--soft); margin:20px 0; }
+
+    .kv{ display:grid; grid-template-columns: 180px 1fr; gap:8px 18px; padding:14px; background:var(--soft-2); border:1px solid var(--soft); border-radius:var(--radius-sm); }
+    .kv dt{ color:var(--muted); font-weight:600; }
+    .kv dd{ margin:0; }
+
+    .endpoint{ display:inline-flex; align-items:center; gap:10px; font:600 13px var(--mono); background:#ecfeff; color:#0e7490; padding:6px 10px; border:1px solid #bae6fd; border-radius:10px; }
+    .method{ padding:3px 8px; border-radius:7px; font:700 12px var(--mono); text-transform:uppercase; }
+    .GET{ background:#e8faf0; color:#166534; border:1px solid #bbf7d0; }
+    .POST{ background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
+    .PUT{ background:#fef9c3; color:#92400e; border:1px solid #fde68a; }
+    .DELETE{ background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
+
+    pre{ margin:10px 0 0; padding:14px; background:var(--code); color:#e5e7eb; border-radius:12px; overflow:auto; border:1px solid #0b1220; }
+    code{ font-family:var(--mono); font-size:13px; }
+
+    .callout{ display:flex; gap:12px; align-items:flex-start; padding:14px 16px; border:1px solid var(--soft); border-left:4px solid var(--warn); border-radius:var(--radius-sm); background:#fffaf0; }
+
+    .pill{ display:inline-block; padding:4px 10px; font:600 11px var(--sans); border-radius:999px; border:1px solid var(--soft); background:var(--soft-2); color:var(--muted); }
+
+    .grid2{ display:grid; grid-template-columns:1fr; gap:18px; }
+    @media (min-width:900px){ .grid2{ grid-template-columns:1fr 1fr; } }
+
+    /* small helper list */
+    ul.clean{ margin:8px 0 0 18px; }
+    ul.clean li{ margin:6px 0; }
+
+    /* anchor links */
+    h2[id], h3[id]{ scroll-margin-top: 20px; }
+
+    /* print tweaks */
+    @media print{
+      body{ background:#fff; }
+      .masthead{ box-shadow:none; }
+      .frame{ break-inside: avoid; box-shadow:none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- ======= Masthead ======= -->
+    <section class="masthead">
+      <div class="title">
+        <div>
+          <h1>Documentation de l'API Backend 5KL <span class="pill">Mise à jour</span></h1>
+          <div class="meta">
+            <span class="badge">Node.js · Express · MongoDB</span>
+            <span class="badge">JWT</span>
+            <span class="badge">i18n: fr · en · sw</span>
+            <span class="badge">Multi‑devise</span>
+          </div>
+          <div class="keyline"></div>
+          <div class="kv">
+            <dt>URL de base (prod)</dt>
+            <dd><code>{{baseUrl}}</code> → <strong>https://fivekl-backend.onrender.com</strong></dd>
+            <dt>Format</dt>
+            <dd>JSON (requête & réponse)</dd>
+            <dt>Authentification</dt>
+            <dd>Header <code>Authorization: Bearer &lt;token&gt;</code> (routes privées)</dd>
+            <dt>Langue</dt>
+            <dd>Header <code>Accept-Language: fr|en|sw</code> ou <code>?lang=en</code></dd>
+            <dt>Devise</dt>
+            <dd>Base FC, conversion via <code>targetCurrency=USD|FC</code> sur GET produits</dd>
+            <dt>Erreurs</dt>
+            <dd>Format constant: <code>{"success":false,"status":"fail|error","message":"..."}</code></dd>
+          </div>
+        </div>
+      </div>
+      <div class="frame toc">
+        <h2>Sommaire</h2>
+        <ol>
+          <li><a href="#intro">Introduction</a></li>
+          <li><a href="#roles">Rôles des Utilisateurs</a></li>
+          <li><a href="#auth">1. Authentification & Autorisation</a></li>
+          <li><a href="#users">2. Gestion des Utilisateurs</a></li>
+          <li><a href="#shops">3. Gestion des Boutiques</a></li>
+          <li><a href="#products">4. Produits, Variations, Catégories, Marques</a></li>
+          <li><a href="#cart">5. Panier d'Achat</a></li>
+          <li><a href="#offers">6. Offres de Prix</a></li>
+          <li><a href="#orders">7. Commandes</a></li>
+          <li><a href="#seller">8. Espace Vendeur</a></li>
+          <li><a href="#admin">9. Espace Administrateur</a></li>
+          <li><a href="#errors-i18n">10. Erreurs & Internationalisation</a></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ======= Introduction ======= -->
+    <section id="intro" class="frame">
+      <h2>Introduction</h2>
+      <p>Bienvenue dans la documentation de l'API Backend de <strong>5KL</strong>, une plateforme e‑commerce multi‑vendeurs inspirée d’Alibaba. 5KL permet à de nombreux vendeurs d’avoir leurs propres boutiques et marques, de lister leurs produits (avec des variations taille/couleur), et aux acheteurs d’acquérir une grande variété de marchandises. La plateforme inclut un système de négociation de prix, une gestion d’inventaire avancée, le paiement à la livraison, la gestion multi‑devise, une messagerie administrateur et des fonctionnalités de modération.</p>
+      <p>L’administrateur gère les utilisateurs (incluant le bannissement), approuve les boutiques, valide les commandes et facilite les négociations de prix. L’API est construite avec <strong>Node.js</strong>, <strong>Express.js</strong> et <strong>MongoDB</strong> avec un accent sur la sécurité, la performance et l’internationalisation.</p>
+    </section>
+
+    <!-- ======= Roles ======= -->
+    <section id="roles" class="frame">
+      <h2>Rôles des Utilisateurs</h2>
+      <div class="grid2">
+        <div>
+          <h3>Acheteur (<code>buyer</code>)</h3>
+          <ul class="clean">
+            <li>Recherche de produits & variations, gestion du panier, commandes.</li>
+            <li>Soumission d’offres de prix, gestion du profil & adresses.</li>
+            <li>Historique et réception des messages admin.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Vendeur (<code>seller</code>)</h3>
+          <ul class="clean">
+            <li>Création/gestion d’une boutique (produits parents & variations).</li>
+            <li>Mouvements de stock, consultation des commandes/offres.</li>
+            <li>Tout vendeur est aussi acheteur.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="keyline"></div>
+      <h3>Administrateur (<code>admin</code>)</h3>
+      <ul class="clean">
+        <li>Contrôle total: utilisateurs, boutiques, commandes, offres, catégories, marques.</li>
+        <li>Gestion des taux de conversion, messages et mouvements de stock.</li>
+        <li>Un admin est aussi acheteur.</li>
+      </ul>
+    </section>
+
+    <!-- ======= 1. Auth ======= -->
+    <section id="auth" class="frame">
+      <h2>1. Authentification & Autorisation <span class="pill">/api/auth</span></h2>
+      <p>Enregistrement, connexion, reset mot de passe, OAuth Google & Facebook.</p>
+
+      <h3 id="auth-register"><span class="endpoint"><span class="method POST">POST</span> /api/auth/register</span></h3>
+      <p>Crée un nouvel utilisateur avec rôle <code>buyer</code> par défaut.</p>
+      <details>
+        <summary><strong>Exemples JSON</strong></summary>
+        <div class="grid2">
+          <div>
+            <div class="pill">Requête</div>
+            <pre><code class="language-json">{
+  "username": "nomutilisateur",
+  "email": "email@example.com",
+  "password": "MotDePasseFort123!",
+  "firstName": "Prénom",
+  "lastName": "Nom",
+  "roles": ["buyer"]
+}</code></pre>
+          </div>
+          <div>
+            <div class="pill">Réponse 201</div>
+            <pre><code class="language-json">{
+  "success": true,
+  "message": "Utilisateur enregistré avec succès. Veuillez vérifier votre e-mail.",
+  "token": "eyJhbGciOiJIUzI1Ni...",
+  "user": {
+    "id": "60a...",
+    "username": "nomutilisateur",
+    "email": "email@example.com",
+    "firstName": "Prénom",
+    "lastName": "Nom",
+    "roles": ["buyer"],
+    "isEmailVerified": false
+  }
+}</code></pre>
+          </div>
+        </div>
+        <div class="callout" style="margin-top:10px"><span>⚠️</span><div>
+          <strong>400 Bad Request</strong>
+          <pre><code class="language-json">{"success":false,"status":"fail","message":"Un utilisateur avec cet e-mail existe déjà."}</code></pre>
+        </div></div>
+      </details>
+
+      <h3 id="auth-login"><span class="endpoint"><span class="method POST">POST</span> /api/auth/login</span></h3>
+      <p>Authentifie un utilisateur, vérifie le bannissement et retourne un JWT.</p>
+      <details>
+        <summary><strong>Exemples JSON</strong></summary>
+        <div class="grid2">
+          <div>
+            <div class="pill">Requête</div>
+            <pre><code class="language-json">{"email":"email@example.com","password":"MotDePasseFort123!"}</code></pre>
+          </div>
+          <div>
+            <div class="pill">Réponse 200</div>
+            <pre><code class="language-json">{
+  "success": true,
+  "message": "Connexion réussie.",
+  "token": "eyJhbGciOiJIUzI1Ni...",
+  "user": {
+    "id": "60a...",
+    "username": "nomutilisateur",
+    "email": "email@example.com",
+    "firstName": "Prénom",
+    "lastName": "Nom",
+    "roles": ["buyer"],
+    "isEmailVerified": false
+  }
+}</code></pre>
+            <div class="pill" style="margin-top:10px">403 si banni</div>
+            <pre><code class="language-json">{"success":false,"status":"fail","message":"Votre compte a été banni. Raison : Violation des conditions d'utilisation."}</code></pre>
+            <div class="pill" style="margin-top:10px">401 identifiants invalides</div>
+            <pre><code class="language-json">{"success":false,"status":"fail","message":"Identifiants invalides."}</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <h3 id="auth-google"><span class="endpoint"><span class="method GET">GET</span> /api/auth/google</span> · <span class="endpoint"><span class="method GET">GET</span> /api/auth/google/callback</span></h3>
+      <p>Flux OAuth 2.0 Google. Si banni, redirection vers <code>FRONTEND_URL</code> avec erreur.</p>
+
+      <h3 id="auth-facebook"><span class="endpoint"><span class="method GET">GET</span> /api/auth/facebook</span> · <span class="endpoint"><span class="method GET">GET</span> /api/auth/facebook/callback</span></h3>
+      <p>Flux OAuth 2.0 Facebook. Si banni, redirection vers <code>FRONTEND_URL</code> avec erreur.</p>
+
+      <h3 id="auth-forgot"><span class="endpoint"><span class="method POST">POST</span> /api/auth/forgotpassword</span></h3>
+      <details>
+        <summary><strong>Réponses</strong></summary>
+        <pre><code class="language-json">{"success":true,"message":"Un e-mail de réinitialisation de mot de passe a été envoyé à votre adresse e-mail."}</code></pre>
+      </details>
+
+      <h3 id="auth-reset"><span class="endpoint"><span class="method PUT">PUT</span> /api/auth/resetpassword/:resettoken</span></h3>
+      <details>
+        <summary><strong>Réponses</strong></summary>
+        <pre><code class="language-json">{"success":true,"message":"Votre mot de passe a été réinitialisé avec succès.","token":"...","user":{"id":"60a...","username":"...","email":"...","roles":["buyer"]}}</code></pre>
+        <div class="callout" style="margin-top:10px"><span>⚠️</span><div><strong>400</strong> Jeton invalide/expiré</div></div>
+      </details>
+    </section>
+
+    <!-- ======= 2. Users ======= -->
+    <section id="users" class="frame">
+      <h2>2. Gestion des Utilisateurs <span class="pill">/api/users</span></h2>
+
+      <h3><span class="endpoint"><span class="method GET">GET</span> /api/users/me</span></h3>
+      <pre><code class="language-json">{"success":true,"data":{"id":"60a...","username":"...","email":"...","firstName":"...","lastName":"...","roles":["buyer"],"addresses":[],"isEmailVerified":false,"isBanned":false,"createdAt":"...","updatedAt":"..."}}</code></pre>
+
+      <h3><span class="endpoint"><span class="method PUT">PUT</span> /api/users/me</span></h3>
+      <pre><code class="language-json">{"firstName":"NouveauPrénom","phone":"+33612345678"}</code></pre>
+
+      <h3><span class="endpoint"><span class="method PUT">PUT</span> /api/users/me/changepassword</span></h3>
+      <pre><code class="language-json">{"currentPassword":"MotDePasseActuel123!","newPassword":"NouveauMotDePasse123!","newPasswordConfirm":"NouveauMotDePasse123!"}</code></pre>
+
+      <h3><span class="endpoint"><span class="method DELETE">DELETE</span> /api/users/me</span></h3>
+
+      <h3>Adresses</h3>
+      <p><span class="endpoint"><span class="method POST">POST</span> /api/users/me/addresses</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/users/me/addresses/:addressId</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/users/me/addresses/:addressId</span></p>
+      <pre><code class="language-json">{"street":"123 Rue de l'Exemple","city":"VilleTest","state":"ÉtatTest","zipCode":"12345","country":"PaysTest","isDefault":true}</code></pre>
+
+      <h3>Tableau de bord Acheteur</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/users/me/dashboard?page=1&limit=10</span></p>
+
+      <h3>Archivage Historique</h3>
+      <p><span class="endpoint"><span class="method DELETE">DELETE</span> /api/users/me/history/orders</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/users/me/history/offers</span></p>
+
+      <h3>Recommandations & Messages</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/users/me/recommendations</span> · <span class="endpoint"><span class="method GET">GET</span> /api/users/me/messages</span></p>
+    </section>
+
+    <!-- ======= 3. Shops ======= -->
+    <section id="shops" class="frame">
+      <h2>3. Gestion des Boutiques <span class="pill">/api/shops</span></h2>
+      <h3>Créer une boutique</h3>
+      <p><span class="endpoint"><span class="method POST">POST</span> /api/shops</span> ou <span class="endpoint"><span class="method POST">POST</span> /api/seller/shop</span></p>
+      <pre><code class="language-json">{"name":"Ma Super Boutique","description":"Des produits de qualité supérieure pour tous.","address":{"street":"100 Rue Principale","city":"Ville","state":"État","zipCode":"12345","country":"Pays"},"phone":"+1234567890","email":"contact@masuperboutique.com"}</code></pre>
+      <h3>Lecture & gestion</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/shops</span> (publiques)</li>
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/shops/:id</span> (publique)</li>
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/seller/shop</span> (vendeur)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/seller/shop</span> (vendeur)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/seller/shop/logo</span> (Cloudinary)</li>
+      </ul>
+      <h3>Admin</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/admin/shops?page=1&limit=10</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/shops/:id/approve</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/shops/:id/status</span></li>
+        <li><span class="endpoint"><span class="method DELETE">DELETE</span> /api/admin/shops/:id</span></li>
+      </ul>
+    </section>
+
+    <!-- ======= 4. Products & Variations ======= -->
+    <section id="products" class="frame">
+      <h2>4. Produits, Variations, Catégories & Marques</h2>
+      <h3>Créer un produit parent</h3>
+      <p><span class="endpoint"><span class="method POST">POST</span> /api/products</span> ou <span class="endpoint"><span class="method POST">POST</span> /api/seller/products</span></p>
+      <pre><code class="language-json">{
+  "name":"T-shirt Col V",
+  "description":"T-shirt en coton doux avec col en V.",
+  "images":["url_image_generale_1","url_image_generale_2"],
+  "category":"60a...",
+  "subCategory":"60b...",
+  "brand":"60c...",
+  "attributes":[{"key":"size","value":"S, M, L, XL"},{"key":"color","value":"Red, Blue, Green"}]
+}</code></pre>
+
+      <h3>Obtenir tous les produits</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/products?targetCurrency=USD&page=1&limit=10&minPrice=10&category=ID_CAT</span></p>
+
+      <h3>Produit par ID (variations + conversion)</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/products/:id?targetCurrency=USD</span></p>
+
+      <h3>Mettre à jour / Supprimer</h3>
+      <p><span class="endpoint"><span class="method PUT">PUT</span> /api/products/:id</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/products/:id</span></p>
+
+      <h3>Images (Cloudinary)</h3>
+      <p><span class="endpoint"><span class="method POST">POST</span> /api/products/:id/images</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/products/:id/images/:imageId</span></p>
+
+      <div class="keyline"></div>
+      <h3>Variations</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/products/:productId/variations</span></li>
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/products/:productId/variations</span></li>
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/product-variations/:id?targetCurrency=USD</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/product-variations/:id</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/product-variations/:id</span></li>
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/product-variations/:id/images</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/product-variations/:id/images/:imageId</span></li>
+      </ul>
+
+      <h3>Mouvements de stock</h3>
+      <p><span class="endpoint"><span class="method POST">POST</span> /api/product-variations/:id/stock-movements</span> · <span class="endpoint"><span class="method GET">GET</span> /api/product-variations/:id/stock-movements?page=1&limit=10</span></p>
+
+      <h3>Catégories & Marques</h3>
+      <ul class="clean">
+        <li>Catégories: <span class="endpoint"><span class="method POST">POST</span> /api/products/categories</span> · <span class="endpoint"><span class="method GET">GET</span> /api/products/categories</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/categories/:id</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/admin/categories/:id</span></li>
+        <li>Marques: <span class="endpoint"><span class="method POST">POST</span> /api/products/brands</span> · <span class="endpoint"><span class="method GET">GET</span> /api/products/brands</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/brands/:id</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/admin/brands/:id</span></li>
+      </ul>
+    </section>
+
+    <!-- ======= 5. Cart ======= -->
+    <section id="cart" class="frame">
+      <h2>5. Gestion du Panier d'Achat <span class="pill">/api/cart</span></h2>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/cart</span></li>
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/cart</span> (ajouter)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/cart/:productVariationId</span> (mettre à jour quantité)</li>
+        <li><span class="endpoint"><span class="method DELETE">DELETE</span> /api/cart/:productVariationId</span> (retirer)</li>
+        <li><span class="endpoint"><span class="method DELETE">DELETE</span> /api/cart</span> (vider)</li>
+      </ul>
+      <div class="callout"><span>ℹ️</span><div>Stock vérifié à l’ajout et à la mise à jour. Les réponses incluent les variations <em>populées</em>.</div></div>
+    </section>
+
+    <!-- ======= 6. Offers ======= -->
+    <section id="offers" class="frame">
+      <h2>6. Gestion des Offres de Prix <span class="pill">/api/offers</span></h2>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/offers</span> (créer)</li>
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/offers</span> (mes offres)</li>
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/offers/:id</span> (détails)</li>
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/offers/:id/message</span> (message/contre‑offre)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/offers/:id/retract</span> (retirer)</li>
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/offers/:id/accept-to-cart</span> (ajout au panier au prix négocié)</li>
+      </ul>
+      <h3>Admin</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/admin/offers?page=1&limit=10</span> · <span class="endpoint"><span class="method GET">GET</span> /api/admin/offers/pending</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/offers/:id/accept</span> (<code>{"acceptedPrice": 10.50}</code>)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/offers/:id/reject</span> (<code>{"adminNotes":"..."}</code>)</li>
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/admin/offers/:id/message</span></li>
+      </ul>
+    </section>
+
+    <!-- ======= 7. Orders ======= -->
+    <section id="orders" class="frame">
+      <h2>7. Gestion des Commandes <span class="pill">/api/orders</span></h2>
+      <h3>Checkout</h3>
+      <p><span class="endpoint"><span class="method POST">POST</span> /api/orders</span></p>
+      <pre><code class="language-json">{"shippingAddressId":"60a...","currency":"USD"}</code></pre>
+      <div class="callout"><span>💡</span><div>Conversion multi‑devise appliquée via le taux administrateur; mouvements de stock enregistrés.</div></div>
+      <h3>Mes commandes</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/orders</span> · <span class="endpoint"><span class="method GET">GET</span> /api/orders/:id</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/orders/:id/cancel</span></p>
+      <h3>Admin</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/admin/orders?page=1&limit=10</span> · <span class="endpoint"><span class="method GET">GET</span> /api/admin/orders/pending</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/orders/:id/accept</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/orders/:id/reject</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/orders/:id/status</span> (<code>{"status":"shipped","adminNotes":"Numéro de suivi : XYZ123"}</code>)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/orders/:id/mark-as-paid</span> (<code>{"isPaid":true|false}</code>)</li>
+      </ul>
+      <h3>Vendeur</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/seller/orders?page=1&limit=10</span></p>
+    </section>
+
+    <!-- ======= 8. Seller ======= -->
+    <section id="seller" class="frame">
+      <h2>8. Espace Vendeur <span class="pill">/api/seller</span></h2>
+      <h3>Dashboard</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/seller/dashboard</span></p>
+      <h3>Produits & Offres</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/seller/products?page=1&limit=10</span> · <span class="endpoint"><span class="method GET">GET</span> /api/seller/offers?page=1&limit=10</span></p>
+      <h3>Variations & Stock (vendeur)</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/seller/products/:productId/variations</span></li>
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/seller/products/:productId/variations</span> · <span class="endpoint"><span class="method GET">GET</span> /api/seller/product-variations/:id</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/seller/product-variations/:id</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/seller/product-variations/:id</span></li>
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/seller/product-variations/:id/images</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/seller/product-variations/:id/images/:imageId</span></li>
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/seller/product-variations/:id/stock-movements</span> · <span class="endpoint"><span class="method GET">GET</span> /api/seller/product-variations/:id/stock-movements</span></li>
+      </ul>
+    </section>
+
+    <!-- ======= 9. Admin ======= -->
+    <section id="admin" class="frame">
+      <h2>9. Espace Administrateur <span class="pill">/api/admin</span></h2>
+
+      <h3>Utilisateurs</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/admin/users?page=1&limit=10</span> · <span class="endpoint"><span class="method GET">GET</span> /api/admin/users/:id</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/users/:id/role</span> (<code>{"roles":["buyer","seller"]}</code>)</li>
+        <li><span class="endpoint"><span class="method DELETE">DELETE</span> /api/admin/users/:id</span> (cannot self‑delete)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/users/:id/ban</span> (<code>{"reason":"..."}</code>) · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/users/:id/unban</span></li>
+      </ul>
+
+      <h3>Boutiques</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/admin/shops?page=1&limit=10</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/shops/:id/approve</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/shops/:id/status</span> (<code>{"isActive":true|false}</code>)</li>
+        <li><span class="endpoint"><span class="method DELETE">DELETE</span> /api/admin/shops/:id</span> (interdit s’il y a des produits)</li>
+      </ul>
+
+      <h3>Commandes</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/admin/orders?page=1&limit=10</span> · <span class="endpoint"><span class="method GET">GET</span> /api/admin/orders/pending</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/orders/:id/accept</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/orders/:id/reject</span> (<code>{"adminNotes":"..."}</code>)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/orders/:id/status</span> (<code>{"status":"shipped","adminNotes":"Numéro de suivi : XYZ123"}</code>)</li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/orders/:id/mark-as-paid</span> (<code>{"isPaid":true|false}</code>)</li>
+      </ul>
+
+      <h3>Offres</h3>
+      <ul class="clean">
+        <li><span class="endpoint"><span class="method GET">GET</span> /api/admin/offers?page=1&limit=10</span> · <span class="endpoint"><span class="method GET">GET</span> /api/admin/offers/pending</span></li>
+        <li><span class="endpoint"><span class="method PUT">PUT</span> /api/admin/offers/:id/accept</span> (<code>{"acceptedPrice":10.50}</code>) · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/offers/:id/reject</span> (<code>{"adminNotes":"..."}</code>)</li>
+        <li><span class="endpoint"><span class="method POST">POST</span> /api/admin/offers/:id/message</span></li>
+      </ul>
+
+      <h3>Catégories & Marques</h3>
+      <ul class="clean">
+        <li>Catégories: <span class="endpoint"><span class="method POST">POST</span> /api/admin/categories</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/categories/:id</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/admin/categories/:id</span></li>
+        <li>Marques: <span class="endpoint"><span class="method POST">POST</span> /api/admin/brands</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/brands/:id</span> · <span class="endpoint"><span class="method DELETE">DELETE</span> /api/admin/brands/:id</span></li>
+      </ul>
+
+      <h3>Taux de change</h3>
+      <p><span class="endpoint"><span class="method GET">GET</span> /api/admin/currency-rate</span> · <span class="endpoint"><span class="method PUT">PUT</span> /api/admin/currency-rate</span> (<code>{"USD_TO_FC_RATE":2800}</code>)</p>
+
+      <h3>Messages Admin</h3>
+      <p><span class="endpoint"><span class="method POST">POST</span> /api/admin/messages</span> · <span class="endpoint"><span class="method GET">GET</span> /api/admin/messages?page=1&limit=10</span></p>
+
+      <h3>Mouvements de stock (admin)</h3>
+      <p><span class="endpoint"><span class="method POST">POST</span> /api/admin/product-variations/:id/stock-movements</span> · <span class="endpoint"><span class="method GET">GET</span> /api/admin/product-variations/:id/stock-movements?page=1&limit=10</span></p>
+    </section>
+
+    <!-- ======= 10. Errors & i18n ======= -->
+    <section id="errors-i18n" class="frame">
+      <h2>10. Erreurs & Internationalisation</h2>
+      <h3>Format d’erreur</h3>
+      <pre><code class="language-json">{
+  "success": false,
+  "status": "fail" | "error",
+  "message": "Message d'erreur traduit pour l'utilisateur."
+}</code></pre>
+      <ul class="clean">
+        <li><code>status: "fail"</code> → erreur côté client (validation, 404, authorization)</li>
+        <li><code>status: "error"</code> → erreur serveur (bug interne, DB)</li>
+      </ul>
+      <h3>Internationalisation (i18n)</h3>
+      <pre><code>Accept-Language: fr | en | sw</code></pre>
+      <pre><code>GET /api/products?lang=en</code></pre>
+    </section>
+
+    <section class="frame">
+      <h2>Notes d’implémentation</h2>
+      <ul class="clean">
+        <li>Respecter les marges/paddings : chaque section est encapsulée en <em>frame</em> (carte) avec bords doux et ombres.</li>
+        <li>Utiliser les <em>badges</em> et <em>chips</em> d’endpoint pour repérer rapidement les routes.</li>
+        <li>Les exemples JSON sont formatés dans des blocs <code>&lt;pre&gt;</code> lisibles, police monospace.</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

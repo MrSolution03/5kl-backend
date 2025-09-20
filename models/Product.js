@@ -12,62 +12,72 @@ const productSchema = new mongoose.Schema({
         required: true,
         trim: true
     },
-    price: {
-        type: Number,
-        required: true,
-        min: 0
-    },
-    images: [{ // URLs des images sur Cloudinary
-        type: String
+    // price et stock ne sont plus ici, ils sont gérés au niveau des variations
+    images: [{ // Images générales du produit (les variations peuvent avoir des images spécifiques)
+        type: String // URLs des images sur Cloudinary
     }],
     category: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Category',
         required: true
     },
-    subCategory: { // Peut être null
+    subCategory: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Category'
     },
-    shop: { // La boutique qui vend le produit
+    shop: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Shop',
         required: true
     },
-    brand: { // La marque du produit (peut être null)
+    brand: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Brand'
     },
-    stock: {
-        type: Number,
-        required: true,
-        min: 0,
-        default: 0
-    },
-    sku: { // Stock Keeping Unit (référence unique)
-        type: String,
-        unique: true,
-        sparse: true,
-        trim: true
-    },
-    isAvailable: {
-        type: Boolean,
-        default: true
-    },
-    attributes: [{ // Attributs dynamiques pour le filtrage improvisé (ex: couleur, taille, matière)
-        key: { type: String, trim: true },
-        value: { type: String, trim: true }
+    // isAvailable est maintenant calculé à partir de l'état des variations
+    // sku est maintenant géré par les variations
+    attributes: [{ // Attributs du produit (définissent les types de variations possibles)
+        key: String,
+        value: String
     }],
-    // Ajout d'un champ pour le prix de comparaison ou le prix d'origine si négocié
-    originalPrice: {
-        type: Number
-    },
+    // originalPrice est maintenant géré par les variations si applicable
+    // Un champ pour le prix min/max agrégé des variations pour la recherche rapide
+    minPrice: { type: Number, default: 0 },
+    maxPrice: { type: Number, default: 0 },
+    totalStock: { type: Number, default: 0 }, // Stock total agrégé de toutes les variations
+    isAvailable: { type: Boolean, default: false } // Vrai si au moins une variation est disponible
 }, {
     timestamps: true
 });
 
-// Index pour la recherche rapide
+// Middleware pour calculer minPrice, maxPrice et totalStock à partir des variations
+productSchema.pre('save', async function(next) {
+    if (this.isModified('variations') || this.isNew) { // Si les variations sont gérées via un sous-document, ce n'est pas le cas ici
+        // Ce calcul sera fait après la création/mise à jour d'une variation
+        // Ou via un hook post('save') sur ProductVariation
+    }
+    next();
+});
+
+// Méthode pour obtenir le prix et le stock agrégés
+productSchema.methods.updateAggregatedData = async function() {
+    const variations = await mongoose.model('ProductVariation').find({ product: this._id, isAvailable: true });
+
+    if (variations.length === 0) {
+        this.minPrice = 0;
+        this.maxPrice = 0;
+        this.totalStock = 0;
+        this.isAvailable = false;
+    } else {
+        this.minPrice = Math.min(...variations.map(v => v.price));
+        this.maxPrice = Math.max(...variations.map(v => v.price));
+        this.totalStock = variations.reduce((acc, v) => acc + v.stock, 0);
+        this.isAvailable = variations.some(v => v.stock > 0 && v.isAvailable);
+    }
+    await this.save({ validateBeforeSave: false }); // Évite les boucles de validation
+};
+
 productSchema.index({ name: 'text', description: 'text' });
-productSchema.index({ category: 1, subCategory: 1, price: 1, brand: 1, shop: 1 });
+productSchema.index({ category: 1, subCategory: 1, minPrice: 1, maxPrice: 1, brand: 1, shop: 1 });
 
 module.exports = mongoose.model('Product', productSchema);

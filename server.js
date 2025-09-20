@@ -9,16 +9,17 @@ const passport = require('passport');
 const AppError = require('./utils/appError');
 const i18nMiddleware = require('./middlewares/i18nMiddleware');
 const CurrencyRate = require('./models/CurrencyRate');
-const AdminMessage = require('./models/AdminMessage'); // AJOUTÉ : Importation du modèle AdminMessage
+const AdminMessage = require('./models/AdminMessage');
+const ProductVariation = require('./models/ProductVariation'); // AJOUTÉ : Importation du modèle ProductVariation
+const StockMovement = require('./models/StockMovement');     // AJOUTÉ : Importation du modèle StockMovement
 
 // Charger les variables d'environnement
 dotenv.config();
 
-// AJOUTÉ : Configuration CORS pour la production
+// Configuration CORS pour la production
 const allowedOrigins = [
-    'http://localhost:3000', // Pour le développement local de votre frontend
-    process.env.FRONTEND_URL, // L'URL de votre frontend déployé
-    // Ajoutez d'autres origines si nécessaire (ex: votre domaine personnalisé)
+    'http://localhost:3000',
+    process.env.FRONTEND_URL,
 ];
 
 const corsOptions = {

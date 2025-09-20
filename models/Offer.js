@@ -2,12 +2,12 @@
 const mongoose = require('mongoose');
 
 const messageSchema = new mongoose.Schema({
-    sender: { // Qui envoie le message: buyer ou admin
+    sender: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
     },
-    message: { // Le contenu du message
+    message: {
         type: String,
         required: true,
         trim: true
@@ -16,22 +16,27 @@ const messageSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
     },
-    isOffer: { // Indique si ce message contient une proposition de prix
+    isOffer: {
         type: Boolean,
         default: false
     },
-    price: { // Le prix proposé dans ce message (si isOffer est true)
+    price: {
         type: Number,
         min: 0
     }
 }, {
-    _id: false // Pas besoin d'un _id pour chaque message
+    _id: false
 });
 
 const offerSchema = new mongoose.Schema({
-    product: {
+    product: { // Référence au produit parent
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Product',
+        required: true
+    },
+    productVariation: { // MODIFIÉ : Référence à la variation spécifique
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'ProductVariation',
         required: true
     },
     buyer: {
@@ -39,7 +44,7 @@ const offerSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
-    initialProposedPrice: { // Le premier prix proposé par l'acheteur
+    initialProposedPrice: {
         type: Number,
         required: true,
         min: 0
@@ -49,19 +54,18 @@ const offerSchema = new mongoose.Schema({
         enum: ['pending', 'accepted', 'rejected', 'retracted', 'expired'],
         default: 'pending'
     },
-    adminNotes: { // Raison de rejet par l'admin
+    adminNotes: {
         type: String
     },
-    acceptedPrice: { // Le prix final si l'offre est acceptée
+    acceptedPrice: {
         type: Number,
         min: 0
     },
-    messages: [messageSchema], // Historique de la discussion
-    lastActivity: { // Pour trier les offres actives par date
+    messages: [messageSchema],
+    lastActivity: {
         type: Date,
         default: Date.now
     },
-    // Référence à la commande si l'offre a mené à un achat
     order: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Order'
@@ -70,7 +74,6 @@ const offerSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Middleware pour mettre à jour lastActivity à chaque nouveau message ou changement de statut
 offerSchema.pre('save', function (next) {
     if (this.isModified('messages') || this.isModified('status')) {
         this.lastActivity = Date.now();

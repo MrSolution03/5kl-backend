@@ -124,6 +124,33 @@
       "stockRequired": "Product stock is required."
     }
   },
+  "productVariation": {
+    "notFound": "Product variation not found.",
+    "created": "Product variation created successfully.",
+    "updated": "Product variation updated successfully.",
+    "deleted": "Product variation deleted successfully.",
+    "alreadyExists": "A variation with these attributes already exists for this product.",
+    "validation": {
+      "skuRequired": "Variation SKU is required.",
+      "skuUnique": "This SKU is already taken.",
+      "priceRequired": "Variation price is required.",
+      "priceMin": "Variation price must be at least {0}.",
+      "stockRequired": "Variation stock is required.",
+      "stockMin": "Variation stock must be at least {0}.",
+      "attributesRequired": "Variation attributes are required."
+    }
+  },
+  "stockMovement": {
+    "notFound": "Stock movement not found.",
+    "created": "Stock movement recorded successfully.",
+    "validation": {
+      "variationRequired": "Product variation is required.",
+      "typeRequired": "Movement type is required.",
+      "quantityRequired": "Quantity is required.",
+      "quantityMin": "Quantity must be at least {0}.",
+      "reasonRequired": "Movement reason is required."
+    }
+  },
   "category": {
     "notFound": "Category not found.",
     "created": "Category created successfully.",
@@ -214,13 +241,17 @@
     "userNotBanned": "This user is not banned.",
     "messageSentSuccess": "Message sent successfully.",
     "invalidRecipientType": "Invalid recipient type. Must be 'all', 'buyer', 'seller' or 'user'.",
-    "specificUserRequired": "A specific user ID is required for recipient type 'user'."
+    "specificUserRequired": "A specific user ID is required for recipient type 'user'.",
+    "stockMovementRecorded": "Stock movement recorded successfully.",
+    "stockMovementTypeInvalid": "Invalid stock movement type.",
+    "variationNotFound": "Product variation not found."
   },
   "cart": {
     "notFound": "Cart not found.",
     "itemNotFound": "Item not found in cart.",
     "productNotFound": "Product not found.",
-    "notEnoughStock": "Not enough stock for product '{0}'. Available: {1}, requested: {2}.",
+    "productVariationNotFound": "Product variation not found for this item.",
+    "notEnoughStock": "Not enough stock for product '{0}' ({1}). Available: {2}, requested: {3}.",
     "addedToCart": "Product added to cart successfully.",
     "quantityUpdated": "Item quantity updated in cart.",
     "removedFromCart": "Item removed from cart.",
@@ -230,6 +261,7 @@
   "offer": {
     "notFound": "Offer not found.",
     "productNotFound": "Product not found for this offer.",
+    "productVariationNotFound": "Product variation not found for this offer.",
     "created": "Price offer created successfully.",
     "alreadyAcceptedOrRejected": "This offer is already accepted, rejected, or cancelled.",
     "notPending": "This offer is not awaiting a response.",
@@ -238,7 +270,7 @@
     "addedToCart": "Product with negotiated price added to cart.",
     "buyerNotOwner": "You are not the owner of this offer.",
     "priceNotValid": "The proposed price must be a positive number.",
-    "offerAlreadyMade": "An offer for this product is already pending or has been accepted.",
+    "offerAlreadyMade": "An offer for this product ({0}) is already pending or has been accepted.",
     "productOutOfStock": "The product is out of stock.",
     "acceptLinkExpired": "The link to accept the offer is invalid or has expired."
   },
@@ -246,7 +278,7 @@
     "notFound": "Order not found.",
     "cartEmpty": "Your cart is empty.",
     "noAddress": "Please provide a valid shipping address.",
-    "productOutOfStock": "Product '{0}' is not available in sufficient quantity. Available stock: {1}, requested: {2}.",
+    "productOutOfStock": "Product '{0}' ({1}) is not available in sufficient quantity. Available stock: {2}, requested: {3}.",
     "created": "Your order has been created successfully and is awaiting administrator approval.",
     "cancelled": "Order cancelled successfully.",
     "cannotCancel": "Cannot cancel an order with status '{0}'.",
@@ -265,6 +297,13 @@
     "ordersRetrieved": "Your shop's orders retrieved successfully.",
     "offersRetrieved": "Offers for your products retrieved successfully.",
     "accessDeniedShop": "Access denied. This action is reserved for the shop owner or administrator.",
-    "notASeller": "You are not registered as a seller."
+    "notASeller": "You are not registered as a seller.",
+    "variationNotFound": "Product variation not found.",
+    "variationCreated": "Product variation created successfully.",
+    "variationUpdated": "Product variation updated successfully.",
+    "variationDeleted": "Product variation deleted successfully.",
+    "variationBelongsToDifferentProduct": "This variation does not belong to this product.",
+    "variationImagesUploaded": "{0} variation images uploaded successfully.",
+    "variationImageRemoved": "Variation image removed successfully."
   }
 }

@@ -1,6 +1,8 @@
 // 5kl-backend/controllers/sellerController.js
 const Shop = require('../models/Shop');
 const Product = require('../models/Product');
+const ProductVariation = require('../models/ProductVariation'); // AJOUTÉ
+const StockMovement = require('../models/StockMovement');     // AJOUTÉ
 const Order = require('../models/Order');
 const Offer = require('../models/Offer');
 const AppError = require('../utils/appError');
@@ -8,7 +10,7 @@ const Joi = require('joi');
 const { upload, cloudinary } = require('../utils/cloudinary');
 const User = require('../models/User');
 
-// --- Schemas de Validation Joi (inchangés) ---
+// --- Schemas de Validation Joi (inchangés pour Shop) ---
 const shopSchema = Joi.object({
     name: Joi.string().trim().min(3).max(100).required(),
     description: Joi.string().trim().max(500).optional().allow(null, ''),
@@ -38,21 +40,55 @@ const updateShopSchema = Joi.object({
     isActive: Joi.boolean().optional()
 }).options({ stripUnknown: true });
 
-const productSchema = Joi.object({ // Utilisé pour les créations/mises à jour de produits via le contrôleur produit
+// Schéma pour le produit parent (sans prix ni stock)
+const productSchema = Joi.object({
     name: Joi.string().trim().min(3).max(255).required(),
     description: Joi.string().trim().min(10).max(2000).required(),
-    price: Joi.number().min(0.01).required(),
+    images: Joi.array().items(Joi.string().uri()).optional().default([]),
     category: Joi.string().hex().length(24).required(),
     subCategory: Joi.string().hex().length(24).optional().allow(null, ''),
     brand: Joi.string().hex().length(24).optional().allow(null, ''),
-    stock: Joi.number().integer().min(0).required(),
-    sku: Joi.string().trim().alphanum().min(3).max(50).optional().allow(null, ''),
-    isAvailable: Joi.boolean().optional().default(true),
     attributes: Joi.array().items(Joi.object({
         key: Joi.string().trim().required(),
         value: Joi.string().trim().required()
     })).optional().default([]),
 });
+
+// Schéma pour une variation de produit
+const productVariationSchema = Joi.object({
+    sku: Joi.string().trim().alphanum().min(3).max(50).required(),
+    attributes: Joi.array().items(Joi.object({
+        key: Joi.string().trim().required(),
+        value: Joi.string().trim().required()
+    })).min(1).required(),
+    price: Joi.number().min(0.01).required(),
+    stock: Joi.number().integer().min(0).required(),
+    images: Joi.array().items(Joi.string().uri()).optional().default([]),
+    isAvailable: Joi.boolean().optional().default(true),
+    lowStockThreshold: Joi.number().integer().min(0).optional().default(10)
+});
+
+// Schéma pour la mise à jour d'une variation
+const updateProductVariationSchema = Joi.object({
+    sku: Joi.string().trim().alphanum().min(3).max(50).optional(),
+    attributes: Joi.array().items(Joi.object({
+        key: Joi.string().trim().required(),
+        value: Joi.string().trim().required()
+    })).min(1).optional(),
+    price: Joi.number().min(0.01).optional(),
+    stock: Joi.number().integer().min(0).optional(),
+    isAvailable: Joi.boolean().optional(),
+    lowStockThreshold: Joi.number().integer().min(0).optional()
+}).options({ stripUnknown: true });
+
+// Schéma pour les mouvements de stock
+const stockMovementSchema = Joi.object({
+    type: Joi.string().valid('in', 'out', 'adjustment').required(),
+    quantity: Joi.number().integer().min(1).required(),
+    reason: Joi.string().min(3).required(),
+    reference: Joi.string().optional().allow(null, '')
+});
+
 
 // --- Fonctions des Contrôleurs ---
 
@@ -69,16 +105,21 @@ exports.getSellerDashboard = async (req, res, next) => {
         }
 
         const totalProducts = await Product.countDocuments({ shop: shop._id });
-        const totalOrders = await Order.countDocuments({ 'items.product': { $in: shop.products } });
-        const totalOffers = await Offer.countDocuments({ product: { $in: shop.products } });
+        // Le calcul de totalOrders et totalOffers doit tenir compte des variations maintenant
+        const productVariationsInShop = await ProductVariation.find({ product: { $in: shop.products } }).select('_id');
+        const variationIds = productVariationsInShop.map(v => v._id);
+
+        const totalOrders = await Order.countDocuments({ 'items.productVariation': { $in: variationIds } });
+        const totalOffers = await Offer.countDocuments({ productVariation: { $in: variationIds } });
 
         const sales = await Order.aggregate([
-            { $match: { 'items.product': { $in: shop.products }, status: 'delivered' } },
+            { $match: { 'items.productVariation': { $in: variationIds }, status: 'delivered' } },
             { $unwind: '$items' },
-            { $match: { 'items.product': { $in: shop.products } } },
+            { $match: { 'items.productVariation': { $in: variationIds } } },
             { $group: { _id: null, totalRevenue: { $sum: { $multiply: ['$items.quantity', '$items.pricePaid'] } } } }
         ]);
         const totalRevenue = sales.length > 0 ? sales[0].totalRevenue : 0;
+
 
         res.status(200).json({
             success: true,
@@ -253,7 +294,7 @@ exports.uploadShopLogo = async (req, res, next) => {
 };
 
 /**
- * @desc    Créer un nouveau produit pour sa boutique
+ * @desc    Créer un nouveau produit parent pour sa boutique
  * @route   POST /api/seller/products
  * @access  Private (Seller)
  */
@@ -263,7 +304,7 @@ exports.createProduct = async (req, res, next) => {
 };
 
 /**
- * @desc    Obtenir tous les produits de sa boutique
+ * @desc    Obtenir tous les produits parents de sa boutique
  * @route   GET /api/seller/products?page=1&limit=10
  * @access  Private (Seller)
  */
@@ -301,7 +342,7 @@ exports.getShopProducts = async (req, res, next) => {
 };
 
 /**
- * @desc    Mettre à jour un de ses produits
+ * @desc    Mettre à jour un de ses produits parents
  * @route   PUT /api/seller/products/:id
  * @access  Private (Seller)
  */
@@ -310,7 +351,7 @@ exports.updateProduct = async (req, res, next) => {
 };
 
 /**
- * @desc    Supprimer un de ses produits
+ * @desc    Supprimer un de ses produits parents
  * @route   DELETE /api/seller/products/:id
  * @access  Private (Seller)
  */
@@ -319,7 +360,7 @@ exports.deleteProduct = async (req, res, next) => {
 };
 
 /**
- * @desc    Télécharger des images pour un de ses produits
+ * @desc    Télécharger des images générales pour un de ses produits
  * @route   POST /api/seller/products/:id/images
  * @access  Private (Seller)
  */
@@ -328,13 +369,119 @@ exports.uploadProductImages = async (req, res, next) => {
 };
 
 /**
- * @desc    Supprimer une image de son produit
+ * @desc    Supprimer une image générale de son produit
  * @route   DELETE /api/seller/products/:id/images/:imageId
  * @access  Private (Seller)
  */
 exports.removeProductImage = async (req, res, next) => {
     return require('./productController').removeProductImage(req, res, next);
 };
+
+// --- AJOUTÉ : Gestion des Variations de Produits par le Vendeur ---
+
+/**
+ * @desc    Créer une variation pour un produit de sa boutique
+ * @route   POST /api/seller/products/:productId/variations
+ * @access  Private (Seller owner of product)
+ */
+exports.createProductVariation = async (req, res, next) => {
+    // Le productController.createProductVariation contient déjà les vérifications d'autorisation
+    return require('./productController').createProductVariation(req, res, next);
+};
+
+/**
+ * @desc    Obtenir toutes les variations d'un produit de sa boutique
+ * @route   GET /api/seller/products/:productId/variations
+ * @access  Private (Seller owner of product)
+ */
+exports.getProductVariations = async (req, res, next) => {
+    try {
+        const { productId } = req.params;
+        const product = await Product.findById(productId);
+        if (!product || product.shop.toString() !== req.user.shop.toString()) {
+            return next(new AppError('seller.productNotFound', 404)); // S'assurer que le produit appartient au vendeur
+        }
+        // Utilise la fonction publique du productController, mais assure la propriété via le middleware.
+        return require('./productController').getProductVariations(req, res, next);
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Obtenir une variation spécifique par ID de sa boutique
+ * @route   GET /api/seller/product-variations/:id
+ * @access  Private (Seller owner of product)
+ */
+exports.getProductVariationById = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const variation = await ProductVariation.findById(id).populate('product', 'shop');
+        if (!variation || variation.product.shop.toString() !== req.user.shop.toString()) {
+            return next(new AppError('seller.variationNotFound', 404)); // S'assurer que la variation appartient au vendeur
+        }
+        return require('./productController').getProductVariationById(req, res, next);
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Mettre à jour une variation de produit de sa boutique
+ * @route   PUT /api/seller/product-variations/:id
+ * @access  Private (Seller owner of product)
+ */
+exports.updateProductVariation = async (req, res, next) => {
+    return require('./productController').updateProductVariation(req, res, next);
+};
+
+/**
+ * @desc    Supprimer une variation de produit de sa boutique
+ * @route   DELETE /api/seller/product-variations/:id
+ * @access  Private (Seller owner of product)
+ */
+exports.deleteProductVariation = async (req, res, next) => {
+    return require('./productController').deleteProductVariation(req, res, next);
+};
+
+/**
+ * @desc    Télécharger des images pour une variation de produit de sa boutique
+ * @route   POST /api/seller/product-variations/:id/images
+ * @access  Private (Seller owner of product)
+ */
+exports.uploadProductVariationImages = async (req, res, next) => {
+    return require('./productController').uploadProductVariationImages(req, res, next);
+};
+
+/**
+ * @desc    Supprimer une image spécifique d'une variation de produit de sa boutique
+ * @route   DELETE /api/seller/product-variations/:id/images/:imageId
+ * @access  Private (Seller owner of product)
+ */
+exports.removeProductVariationImage = async (req, res, next) => {
+    return require('./productController').removeProductVariationImage(req, res, next);
+};
+
+/**
+ * @desc    Enregistrer un mouvement de stock pour une variation de sa boutique
+ * @route   POST /api/seller/product-variations/:id/stock-movements
+ * @access  Private (Seller owner of product)
+ */
+exports.recordStockMovement = async (req, res, next) => {
+    return require('./productController').recordStockMovement(req, res, next);
+};
+
+/**
+ * @desc    Obtenir l'historique des mouvements de stock pour une variation de sa boutique
+ * @route   GET /api/seller/product-variations/:id/stock-movements
+ * @access  Private (Seller owner of product)
+ */
+exports.getStockMovements = async (req, res, next) => {
+    return require('./productController').getStockMovements(req, res, next);
+};
+
+
+// --- Commandes et offres liées à la boutique du vendeur (inchangé, populera les variations maintenant) ---
 
 /**
  * @desc    Obtenir les commandes qui concernent sa boutique
@@ -352,13 +499,19 @@ exports.getShopOrders = async (req, res, next) => {
         const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
 
-        const orders = await Order.find({ 'items.product': { $in: shop.products } })
+        const productVariationsInShop = await ProductVariation.find({ product: { $in: shop.products } }).select('_id');
+        const variationIds = productVariationsInShop.map(v => v._id);
+
+        const orders = await Order.find({ 'items.productVariation': { $in: variationIds } })
             .populate('user', 'username email')
-            .populate('items.product', 'name price shop')
+            .populate({
+                path: 'items.productVariation',
+                populate: { path: 'product', select: 'name images' }
+            })
             .skip(skip)
             .limit(limit);
 
-        const totalOrders = await Order.countDocuments({ 'items.product': { $in: shop.products } });
+        const totalOrders = await Order.countDocuments({ 'items.productVariation': { $in: variationIds } });
 
         res.status(200).json({
             success: true,
@@ -390,13 +543,19 @@ exports.getShopOffers = async (req, res, next) => {
         const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
 
-        const offers = await Offer.find({ product: { $in: shop.products } })
+        const productVariationsInShop = await ProductVariation.find({ product: { $in: shop.products } }).select('_id');
+        const variationIds = productVariationsInShop.map(v => v._id);
+
+        const offers = await Offer.find({ productVariation: { $in: variationIds } })
             .populate('buyer', 'username email')
-            .populate('product', 'name price shop')
+            .populate({
+                path: 'productVariation',
+                populate: { path: 'product', select: 'name images' }
+            })
             .skip(skip)
             .limit(limit);
 
-        const totalOffers = await Offer.countDocuments({ product: { $in: shop.products } });
+        const totalOffers = await Offer.countDocuments({ productVariation: { $in: variationIds } });
 
         res.status(200).json({
             success: true,

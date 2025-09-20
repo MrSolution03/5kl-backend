@@ -1,7 +1,8 @@
 // 5kl-backend/controllers/offerController.js
 const Offer = require('../models/Offer');
-const Product = require('../models/Product');
-const User = require('../models/User'); // Utilisé pour populater les senders de messages
+const Product = require('../models/Product'); // Pour le produit parent
+const ProductVariation = require('../models/ProductVariation'); // AJOUTÉ
+const User = require('../models/User');
 const Cart = require('../models/Cart');
 const AppError = require('../utils/appError');
 const Joi = require('joi');
@@ -9,20 +10,20 @@ const Joi = require('joi');
 // --- Schemas de Validation Joi ---
 
 const createOfferSchema = Joi.object({
-    productId: Joi.string().hex().length(24).required(),
+    productVariationId: Joi.string().hex().length(24).required(), // MODIFIÉ
     proposedPrice: Joi.number().min(0.01).required(),
-    initialMessage: Joi.string().min(1).optional().allow('') // Premier message de l'acheteur
+    initialMessage: Joi.string().min(1).optional().allow('')
 }).options({ stripUnknown: true });
 
 const addMessageToOfferSchema = Joi.object({
     message: Joi.string().min(1).required(),
-    price: Joi.number().min(0.01).optional().allow(null) // Pour les contre-offres de l'acheteur si on les permet
+    price: Joi.number().min(0.01).optional().allow(null)
 }).options({ stripUnknown: true });
 
 // --- Fonctions des Contrôleurs ---
 
 /**
- * @desc    Créer une nouvelle offre de prix pour un produit
+ * @desc    Créer une nouvelle offre de prix pour une variation de produit
  * @route   POST /api/offers
  * @access  Private (Buyer)
  */
@@ -35,37 +36,38 @@ exports.createOffer = async (req, res, next) => {
             return next(error);
         }
 
-        const { productId, proposedPrice, initialMessage } = value;
+        const { productVariationId, proposedPrice, initialMessage } = value;
 
-        const product = await Product.findById(productId);
-        if (!product || !product.isAvailable) {
-            return next(new AppError('offer.productNotFound', 404));
+        const variation = await ProductVariation.findById(productVariationId).populate('product', 'name');
+        if (!variation || !variation.isAvailable) {
+            return next(new AppError('offer.productVariationNotFound', 404));
         }
-        if (product.stock < 1) { // L'offre est inutile si pas de stock
+        if (variation.stock < 1) {
              return next(new AppError('offer.productOutOfStock', 400));
         }
 
-        // Vérifier si une offre pour ce produit est déjà en cours ou acceptée par cet acheteur
+        // Vérifier si une offre pour cette variation est déjà en cours ou acceptée par cet acheteur
         const existingOffer = await Offer.findOne({
             buyer: req.user.id,
-            product: productId,
+            productVariation: productVariationId, // MODIFIÉ
             status: { $in: ['pending', 'accepted'] }
         });
 
         if (existingOffer) {
-            return next(new AppError('offer.offerAlreadyMade', 400));
+            return next(new AppError('offer.offerAlreadyMade', 400, [variation.product.name + ' (' + variation.attributes.map(a => a.value).join(', ') + ')']));
         }
 
         const messages = [{
             sender: req.user.id,
-            message: initialMessage || req.t('offer.created'), // Message par défaut si pas d'initialMessage
+            message: initialMessage || req.t('offer.created'),
             timestamp: Date.now(),
             isOffer: true,
             price: proposedPrice
         }];
 
         const offer = await Offer.create({
-            product: productId,
+            product: variation.product._id, // Référence au produit parent
+            productVariation: productVariationId, // MODIFIÉ
             buyer: req.user.id,
             initialProposedPrice: proposedPrice,
             messages,
@@ -73,7 +75,7 @@ exports.createOffer = async (req, res, next) => {
             status: 'pending'
         });
 
-        // TODO: Notifier l'administrateur de la nouvelle offre (ex: via email ou WebSocket)
+        // TODO: Notifier l'administrateur de la nouvelle offre
 
         res.status(201).json({
             success: true,
@@ -93,8 +95,11 @@ exports.createOffer = async (req, res, next) => {
 exports.getOffers = async (req, res, next) => {
     try {
         const offers = await Offer.find({ buyer: req.user.id })
-            .populate('product', 'name price images')
-            .sort('-lastActivity'); // Trier par la dernière activité
+            .populate({
+                path: 'productVariation',
+                populate: { path: 'product', select: 'name images' }
+            })
+            .sort('-lastActivity');
 
         res.status(200).json({
             success: true,
@@ -115,15 +120,17 @@ exports.getOfferById = async (req, res, next) => {
     try {
         const offer = await Offer.findById(req.params.id)
             .populate('buyer', 'username email')
-            .populate('product', 'name price images stock shop')
-            .populate('messages.sender', 'username email'); // Populer l'expéditeur de chaque message
+            .populate({
+                path: 'productVariation',
+                populate: { path: 'product', select: 'name images stock shop' }
+            })
+            .populate('messages.sender', 'username email');
 
         if (!offer) {
             return next(new AppError('offer.notFound', 404));
         }
 
-        // Vérifier que l'utilisateur est bien le créateur de l'offre
-        if (offer.buyer._id.toString() !== req.user.id) { // Utilisez _id.toString() pour comparer
+        if (offer.buyer._id.toString() !== req.user.id) {
             return next(new AppError('offer.buyerNotOwner', 403));
         }
 
@@ -155,12 +162,10 @@ exports.addMessageToOffer = async (req, res, next) => {
             return next(new AppError('offer.notFound', 404));
         }
 
-        // Vérifier que l'utilisateur est bien le créateur de l'offre
         if (offer.buyer.toString() !== req.user.id) {
             return next(new AppError('offer.buyerNotOwner', 403));
         }
 
-        // L'offre doit être en attente pour ajouter des messages
         if (offer.status !== 'pending') {
             return next(new AppError('offer.notPending', 400));
         }
@@ -169,7 +174,7 @@ exports.addMessageToOffer = async (req, res, next) => {
             sender: req.user.id,
             message: value.message,
             timestamp: Date.now(),
-            isOffer: !!value.price, // Si un prix est fourni, c'est une contre-offre de l'acheteur
+            isOffer: !!value.price,
             price: value.price
         };
 
@@ -177,12 +182,12 @@ exports.addMessageToOffer = async (req, res, next) => {
         offer.lastActivity = Date.now();
         await offer.save();
 
-        // TODO: Notifier l'administrateur d'un nouveau message de l'acheteur (ex: via email ou WebSocket)
+        // TODO: Notifier l'administrateur d'un nouveau message de l'acheteur
 
         res.status(200).json({
             success: true,
             message: req.t('offer.messageAdded'),
-            data: offer.messages[offer.messages.length - 1] // Retourne le dernier message ajouté
+            data: offer.messages[offer.messages.length - 1]
         });
     } catch (error) {
         next(error);
@@ -201,12 +206,10 @@ exports.retractOffer = async (req, res, next) => {
             return next(new AppError('offer.notFound', 404));
         }
 
-        // Vérifier que l'utilisateur est bien le créateur de l'offre
         if (offer.buyer.toString() !== req.user.id) {
             return next(new AppError('offer.buyerNotOwner', 403));
         }
 
-        // L'offre ne peut être retirée que si elle est 'pending'
         if (offer.status !== 'pending') {
             return next(new AppError('offer.alreadyAcceptedOrRejected', 400));
         }
@@ -233,32 +236,28 @@ exports.retractOffer = async (req, res, next) => {
 };
 
 /**
- * @desc    Accepter une offre et ajouter le produit au panier avec le prix négocié
+ * @desc    Accepter une offre et ajouter le produit (variation) au panier avec le prix négocié
  * @route   POST /api/offers/:id/accept-to-cart
  * @access  Private (Buyer owner)
- * Note: Cette route serait typiquement appelée via un lien unique envoyé à l'acheteur après acceptation par l'admin.
- * Pour la sécurité, elle doit aussi vérifier le statut de l'offre.
  */
 exports.acceptOfferToCart = async (req, res, next) => {
     try {
-        const offer = await Offer.findById(req.params.id).populate('product');
+        const offer = await Offer.findById(req.params.id).populate('productVariation'); // MODIFIÉ
 
         if (!offer) {
             return next(new AppError('offer.notFound', 404));
         }
 
-        // Vérifier que l'utilisateur est bien le créateur de l'offre
         if (offer.buyer.toString() !== req.user.id) {
             return next(new AppError('offer.buyerNotOwner', 403));
         }
 
-        // L'offre doit avoir été acceptée par l'admin et avoir un prix accepté
         if (offer.status !== 'accepted' || !offer.acceptedPrice) {
             return next(new AppError('offer.acceptLinkExpired', 400));
         }
 
-        // Vérifier le stock du produit au moment de l'ajout au panier
-        if (!offer.product || !offer.product.isAvailable || offer.product.stock < 1) {
+        const variation = offer.productVariation; // La variation
+        if (!variation || !variation.isAvailable || variation.stock < 1) { // Vérifier le stock de la variation
             return next(new AppError('offer.productOutOfStock', 400));
         }
 
@@ -268,35 +267,25 @@ exports.acceptOfferToCart = async (req, res, next) => {
             cart = await Cart.create({ user: req.user.id });
         }
 
-        // Vérifier si le produit est déjà dans le panier avec un prix non négocié, et le mettre à jour
-        const itemIndex = cart.items.findIndex(item => item.product.toString() === offer.product._id.toString());
+        const itemIndex = cart.items.findIndex(item => item.productVariation.toString() === variation._id.toString()); // MODIFIÉ
 
         if (itemIndex > -1) {
-            // Mettre à jour le prix et la quantité (si l'utilisateur clique plusieurs fois, ajouter un à la quantité)
-            // Ou remplacer si l'intention est d'avoir un seul exemplaire de l'offre négociée.
-            // Pour l'instant, ajoutons 1 à la quantité existante.
             cart.items[itemIndex].quantity += 1;
-            cart.items[itemIndex].priceAtAddToCart = offer.acceptedPrice; // S'assurer que le prix négocié est appliqué
+            cart.items[itemIndex].priceAtAddToCart = offer.acceptedPrice;
         } else {
             cart.items.push({
-                product: offer.product._id,
+                productVariation: variation._id, // MODIFIÉ
                 quantity: 1,
                 priceAtAddToCart: offer.acceptedPrice
             });
         }
-        await cart.save(); // Le middleware pre('save') mettra à jour le totalPrice
+        await cart.save();
 
-        // Optionnel: marquer l'offre comme "consumée" ou liée à un panier/commande
-        // Si vous voulez lier l'offre à un panier ou une commande future, mettez à jour l'offre ici.
-        // offer.order = cart._id; // Ceci est une option, si vous voulez lier l'offre à un panier/commande
-        // await offer.save();
-
-        // Après avoir ajouté au panier, l'offre peut être considérée comme "closed" ou "fulfilled"
-        // Cela dépend de votre flux métier. Pour l'instant, on la laisse "accepted".
-
-        // Repeupler le panier pour la réponse
         const updatedCart = await Cart.findOne({ user: req.user.id })
-                                     .populate('items.product', 'name price images stock shop');
+                                     .populate({
+                                        path: 'items.productVariation',
+                                        populate: { path: 'product', select: 'name images' }
+                                     });
 
         res.status(200).json({
             success: true,

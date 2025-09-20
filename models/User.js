@@ -69,20 +69,20 @@ const userSchema = new mongoose.Schema({
     },
     resetPasswordToken: String,
     resetPasswordExpires: Date,
-    lastViewedProducts: [{
-        product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    lastViewedVariations: [{ // MODIFIÉ : Référence à ProductVariation
+        variation: { type: mongoose.Schema.Types.ObjectId, ref: 'ProductVariation' },
         timestamp: { type: Date, default: Date.now }
     }],
     orderHistoryArchivedAt: Date,
     offerHistoryArchivedAt: Date,
-    isBanned: { // AJOUTÉ : Champ pour indiquer si l'utilisateur est banni
+    isBanned: {
         type: Boolean,
         default: false
     },
-    bannedReason: { // AJOUTÉ : Raison du bannissement
+    bannedReason: {
         type: String
     },
-    bannedBy: { // AJOUTÉ : Qui a banni l'utilisateur
+    bannedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     }
@@ -90,7 +90,6 @@ const userSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Middleware Mongoose pour hacher le mot de passe avant de sauvegarder
 userSchema.pre('save', async function (next) {
     if (!this.isModified('password') || !this.password) {
         return next();
@@ -100,20 +99,18 @@ userSchema.pre('save', async function (next) {
     next();
 });
 
-// Méthode pour comparer les mots de passe
 userSchema.methods.matchPassword = async function (enteredPassword) {
     if (!this.password) return false;
     return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Méthode pour générer un token de réinitialisation de mot de passe
 userSchema.methods.getResetPasswordToken = function() {
     const resetToken = crypto.randomBytes(20).toString('hex');
     this.resetPasswordToken = crypto
         .createHash('sha256')
         .update(resetToken)
         .digest('hex');
-    this.resetPasswordExpires = Date.now() + 60 * 60 * 1000; // 1 heure
+    this.resetPasswordExpires = Date.now() + 60 * 60 * 1000;
     return resetToken;
 };
 

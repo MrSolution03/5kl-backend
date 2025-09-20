@@ -2,12 +2,14 @@
 const User = require('../models/User');
 const Shop = require('../models/Shop');
 const Product = require('../models/Product');
+const ProductVariation = require('../models/ProductVariation'); // AJOUTÉ
+const StockMovement = require('../models/StockMovement');     // AJOUTÉ
 const Order = require('../models/Order');
 const Offer = require('../models/Offer');
 const Category = require('../models/Category');
 const Brand = require('../models/Brand');
 const CurrencyRate = require('../models/CurrencyRate');
-const AdminMessage = require('../models/AdminMessage'); // AJOUTÉ : Modèle pour les messages admin
+const AdminMessage = require('../models/AdminMessage');
 const AppError = require('../utils/appError');
 const Joi = require('joi');
 const { cloudinary } = require('../utils/cloudinary');
@@ -67,18 +69,25 @@ const banUserSchema = Joi.object({
     reason: Joi.string().min(10).required()
 });
 
-// AJOUTÉ : Schéma pour envoyer un message
 const sendMessageSchema = Joi.object({
     recipientType: Joi.string().valid('all', 'buyer', 'seller', 'user').required(),
-    recipientId: Joi.string().hex().length(24).optional().allow(null), // Seulement si recipientType est 'user'
+    recipientId: Joi.string().hex().length(24).optional().allow(null),
     subject: Joi.string().min(3).max(255).required(),
     message: Joi.string().min(10).required()
+});
+
+// AJOUTÉ : Schéma pour enregistrer un mouvement de stock par l'admin
+const stockMovementSchema = Joi.object({
+    type: Joi.string().valid('in', 'out', 'adjustment').required(),
+    quantity: Joi.number().integer().min(1).required(),
+    reason: Joi.string().min(3).required(),
+    reference: Joi.string().optional().allow(null, '')
 });
 
 
 // --- Fonctions des Contrôleurs ---
 
-// --- Gestion des utilisateurs ---
+// --- Gestion des utilisateurs (inchangé) ---
 
 /**
  * @desc    Obtenir tous les utilisateurs
@@ -373,7 +382,10 @@ exports.getAllOrders = async (req, res, next) => {
 
         const orders = await Order.find()
             .populate('user', 'username email')
-            .populate('items.product', 'name price shop')
+            .populate({
+                path: 'items.productVariation',
+                populate: { path: 'product', select: 'name shop' }
+            })
             .skip(skip)
             .limit(limit);
 
@@ -405,7 +417,10 @@ exports.getPendingOrders = async (req, res, next) => {
 
         const orders = await Order.find({ status: 'pending_admin_approval' })
             .populate('user', 'username email')
-            .populate('items.product', 'name price shop')
+            .populate({
+                path: 'items.productVariation',
+                populate: { path: 'product', select: 'name shop' }
+            })
             .skip(skip)
             .limit(limit);
 
@@ -445,7 +460,7 @@ exports.acceptOrder = async (req, res, next) => {
         await order.save();
 
         // TODO: Notifier l'utilisateur et le(s) vendeur(s)
-        // TODO: Décrémenter les stocks des produits (si non fait au checkout)
+        // Les stocks sont déjà décrémentés à la création de la commande
 
         res.status(200).json({
             success: true,
@@ -485,8 +500,24 @@ exports.rejectOrder = async (req, res, next) => {
         order.deliveryTracking.push({ status: 'rejected' });
         await order.save();
 
+        // Restaurer les stocks des variations et enregistrer les mouvements
+        for (const item of order.items) {
+            await ProductVariation.findByIdAndUpdate(item.productVariation, { $inc: { stock: item.quantity } });
+            await StockMovement.create({
+                variation: item.productVariation,
+                product: item.product,
+                type: 'in',
+                quantity: item.quantity,
+                reason: 'rejet_commande',
+                reference: order._id.toString(),
+                movedBy: req.user.id,
+                currentStock: await ProductVariation.findById(item.productVariation).then(v => v.stock)
+            });
+            await Product.findById(item.product).then(p => p.updateAggregatedData());
+        }
+
         // TODO: Notifier l'utilisateur avec la raison du rejet
-        // TODO: Restaurer les stocks des produits (si décrémentés au checkout)
+        // TODO: Notifier les vendeurs concernés
 
         res.status(200).json({
             success: true,
@@ -607,7 +638,10 @@ exports.getAllOffers = async (req, res, next) => {
 
         const offers = await Offer.find()
             .populate('buyer', 'username email')
-            .populate('product', 'name price shop')
+            .populate({
+                path: 'productVariation',
+                populate: { path: 'product', select: 'name shop' }
+            })
             .skip(skip)
             .limit(limit);
 
@@ -639,11 +673,14 @@ exports.getPendingOffers = async (req, res, next) => {
 
         const offers = await Offer.find({ status: 'pending' })
             .populate('buyer', 'username email')
-            .populate('product', 'name price shop')
+            .populate({
+                path: 'productVariation',
+                populate: { path: 'product', select: 'name shop' }
+            })
             .skip(skip)
             .limit(limit);
 
-        const totalPendingOffers = await Offer.countDocuments({ status: 'pending' });
+        const totalPendingOffers = await Order.countDocuments({ status: 'pending' });
 
         res.status(200).json({
             success: true,
@@ -672,7 +709,7 @@ exports.acceptOffer = async (req, res, next) => {
             return next(error);
         }
 
-        const offer = await Offer.findById(req.params.id).populate('product', 'name price');
+        const offer = await Offer.findById(req.params.id).populate('productVariation', 'price product');
         if (!offer) {
             return next(new AppError('admin.offerNotFound', 404));
         }
@@ -681,7 +718,7 @@ exports.acceptOffer = async (req, res, next) => {
             return next(new AppError('admin.offerAlreadyAcceptedOrRejected', 400));
         }
 
-        if (value.acceptedPrice < offer.product.price) {
+        if (value.acceptedPrice < offer.productVariation.price) {
             return next(new AppError('admin.invalidOfferPrice', 400));
         }
 
@@ -1008,7 +1045,7 @@ exports.updateCurrencyRate = async (req, res, next) => {
     }
 };
 
-// --- AJOUTÉ : Gestion des Messages Admin ---
+// --- Gestion des Messages Admin (inchangé) ---
 
 /**
  * @desc    Envoyer un message à un ou plusieurs destinataires
@@ -1035,7 +1072,7 @@ exports.sendMessage = async (req, res, next) => {
             if (!recipientUser) {
                 return next(new AppError('admin.userNotFound', 404));
             }
-        } else if (recipientId) { // Si recipientId est fourni mais recipientType n'est pas 'user'
+        } else if (recipientId) {
             return next(new AppError('admin.invalidRecipientType', 400));
         }
 
@@ -1071,7 +1108,7 @@ exports.getSentMessages = async (req, res, next) => {
         const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
 
-        const messages = await AdminMessage.find({ sender: req.user.id }) // Admin voit les messages qu'il a envoyés
+        const messages = await AdminMessage.find({ sender: req.user.id })
             .populate('recipientUser', 'username email')
             .sort('-sentAt')
             .skip(skip)
@@ -1090,4 +1127,27 @@ exports.getSentMessages = async (req, res, next) => {
     } catch (error) {
         next(error);
     }
+};
+
+// --- AJOUTÉ : Gestion des Mouvements de Stock par l'Admin ---
+
+/**
+ * @desc    Enregistrer un mouvement de stock (pour n'importe quelle variation)
+ * @route   POST /api/admin/product-variations/:id/stock-movements
+ * @access  Private (Admin)
+ */
+exports.recordStockMovement = async (req, res, next) => {
+    // L'admin peut enregistrer des mouvements pour n'importe quelle variation.
+    // La vérification d'autorisation dans productController.recordStockMovement gère la propriété.
+    // L'admin étant admin, il passera la vérification.
+    return require('./productController').recordStockMovement(req, res, next);
+};
+
+/**
+ * @desc    Obtenir l'historique des mouvements de stock (pour n'importe quelle variation)
+ * @route   GET /api/admin/product-variations/:id/stock-movements
+ * @access  Private (Admin)
+ */
+exports.getStockMovements = async (req, res, next) => {
+    return require('./productController').getStockMovements(req, res, next);
 };

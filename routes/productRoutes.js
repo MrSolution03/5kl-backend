@@ -3,40 +3,62 @@ const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
-const { upload } = require('../utils/cloudinary'); // Pour les uploads d'images de produits
+const { upload } = require('../utils/cloudinary');
 
-// Routes publiques
+// --- Routes Publiques (Produits, Catégories, Marques) ---
 router.route('/')
     .get(productController.getProducts); // Obtenir tous les produits (avec filtres de recherche)
 
 router.route('/:id')
-    .get(productController.getProductById); // Obtenir un produit par ID
+    .get(productController.getProductById); // Obtenir un produit par ID (avec ses variations)
 
-// Routes de gestion des catégories (accessibles par tous pour la lecture, mais création/modification par Admin)
 router.route('/categories')
-    .get(productController.getCategories)
-    .post(protect, authorize('admin'), productController.createCategory); // Seul l'admin peut créer une catégorie
-// Pas de PUT/DELETE pour les catégories ici, plutôt dans adminRoutes pour une gestion centralisée
+    .get(productController.getCategories); // Obtenir toutes les catégories
 
-// Routes de gestion des marques (accessibles par tous pour la lecture, mais création/modification par Admin)
 router.route('/brands')
-    .get(productController.getBrands)
-    .post(protect, authorize('admin'), productController.createBrand); // Seul l'admin peut créer une marque
-// Pas de PUT/DELETE pour les marques ici, plutôt dans adminRoutes
+    .get(productController.getBrands); // Obtenir toutes les marques
 
-// Routes nécessitant une authentification et une autorisation pour les opérations sur les produits
-// Créer un produit (seuls les vendeurs peuvent)
-router.post('/', protect, authorize('seller'), productController.createProduct);
+// --- Routes Publiques pour les Variations ---
+router.route('/:productId/variations')
+    .get(productController.getProductVariations); // Obtenir toutes les variations d'un produit
 
-// Mettre à jour ou supprimer un produit (le vendeur propriétaire ou l'admin)
+router.route('/product-variations/:id')
+    .get(productController.getProductVariationById); // Obtenir une variation spécifique par ID
+
+
+// --- Routes Protégées (Opérations sur les Produits et leurs Variations) ---
+router.use(protect); // Toutes les routes ci-dessous nécessitent une authentification
+
+// Opérations sur le Produit Parent (par vendeur ou admin)
+router.route('/')
+    .post(authorize('seller'), productController.createProduct); // Créer un produit parent
+
 router.route('/:id')
-    .put(protect, authorize('seller', 'admin'), productController.updateProduct)
-    .delete(protect, authorize('seller', 'admin'), productController.deleteProduct);
+    .put(authorize('seller', 'admin'), productController.updateProduct) // Mettre à jour un produit parent
+    .delete(authorize('seller', 'admin'), productController.deleteProduct); // Supprimer un produit parent
 
-// Upload d'images pour un produit (plusieurs images)
-router.post('/:id/images', protect, authorize('seller', 'admin'), upload.array('images', 5), productController.uploadProductImages); // Max 5 images
-// Supprimer une image spécifique d'un produit
-router.delete('/:id/images/:imageId', protect, authorize('seller', 'admin'), productController.removeProductImage);
+router.post('/:id/images', authorize('seller', 'admin'), upload.array('images', 5), productController.uploadProductImages);
+router.delete('/:id/images/:imageId', authorize('seller', 'admin'), productController.removeProductImage);
 
+
+// Opérations sur les Variations de Produit (par vendeur ou admin)
+router.route('/:productId/variations')
+    .post(authorize('seller', 'admin'), productController.createProductVariation); // Créer une variation pour un produit
+
+router.route('/product-variations/:id')
+    .put(authorize('seller', 'admin'), productController.updateProductVariation) // Mettre à jour une variation
+    .delete(authorize('seller', 'admin'), productController.deleteProductVariation); // Supprimer une variation
+
+router.post('/product-variations/:id/images', authorize('seller', 'admin'), upload.array('images', 5), productController.uploadProductVariationImages);
+router.delete('/product-variations/:id/images/:imageId', authorize('seller', 'admin'), productController.removeProductVariationImage);
+
+// Opérations sur les Mouvements de Stock (par vendeur ou admin)
+router.route('/product-variations/:id/stock-movements')
+    .post(authorize('seller', 'admin'), productController.recordStockMovement) // Enregistrer un mouvement de stock
+    .get(authorize('seller', 'admin'), productController.getStockMovements); // Obtenir les mouvements de stock
+
+
+// Routes de gestion des catégories et marques par l'admin (déjà dans adminRoutes, mais aussi dans productController pour la logique)
+// Ces routes sont exposées directement via adminRoutes.js pour une meilleure encapsulation admin.
 
 module.exports = router;

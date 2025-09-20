@@ -124,6 +124,33 @@
       "stockRequired": "Le stock du produit est requis."
     }
   },
+  "productVariation": {
+    "notFound": "Variation de produit introuvable.",
+    "created": "Variation de produit créée avec succès.",
+    "updated": "Variation de produit mise à jour avec succès.",
+    "deleted": "Variation de produit supprimée avec succès.",
+    "alreadyExists": "Une variation avec ces attributs existe déjà pour ce produit.",
+    "validation": {
+      "skuRequired": "Le SKU de la variation est requis.",
+      "skuUnique": "Ce SKU est déjà pris.",
+      "priceRequired": "Le prix de la variation est requis.",
+      "priceMin": "Le prix de la variation doit être d'au moins {0}.",
+      "stockRequired": "Le stock de la variation est requis.",
+      "stockMin": "Le stock de la variation doit être d'au moins {0}.",
+      "attributesRequired": "Les attributs de la variation sont requis."
+    }
+  },
+  "stockMovement": {
+    "notFound": "Mouvement de stock introuvable.",
+    "created": "Mouvement de stock enregistré avec succès.",
+    "validation": {
+      "variationRequired": "La variation du produit est requise.",
+      "typeRequired": "Le type de mouvement est requis.",
+      "quantityRequired": "La quantité est requise.",
+      "quantityMin": "La quantité doit être d'au moins {0}.",
+      "reasonRequired": "La raison du mouvement est requise."
+    }
+  },
   "category": {
     "notFound": "Catégorie introuvable.",
     "created": "Catégorie créée avec succès.",
@@ -214,13 +241,17 @@
     "userNotBanned": "Cet utilisateur n'est pas banni.",
     "messageSentSuccess": "Message envoyé avec succès.",
     "invalidRecipientType": "Type de destinataire invalide. Doit être 'all', 'buyer', 'seller' ou 'user'.",
-    "specificUserRequired": "Un ID utilisateur spécifique est requis pour le type de destinataire 'user'."
+    "specificUserRequired": "Un ID utilisateur spécifique est requis pour le type de destinataire 'user'.",
+    "stockMovementRecorded": "Mouvement de stock enregistré avec succès.",
+    "stockMovementTypeInvalid": "Type de mouvement de stock invalide.",
+    "variationNotFound": "Variation de produit introuvable."
   },
   "cart": {
     "notFound": "Panier introuvable.",
     "itemNotFound": "Article introuvable dans le panier.",
     "productNotFound": "Produit introuvable.",
-    "notEnoughStock": "Stock insuffisant pour le produit '{0}'. Disponible: {1}, demandée: {2}.",
+    "productVariationNotFound": "Variation de produit introuvable pour cet article.",
+    "notEnoughStock": "Stock insuffisant pour le produit '{0}' ({1}). Disponible: {2}, demandée: {3}.",
     "addedToCart": "Produit ajouté au panier avec succès.",
     "quantityUpdated": "Quantité de l'article mise à jour dans le panier.",
     "removedFromCart": "Article retiré du panier.",
@@ -230,6 +261,7 @@
   "offer": {
     "notFound": "Offre introuvable.",
     "productNotFound": "Produit introuvable pour cette offre.",
+    "productVariationNotFound": "Variation de produit introuvable pour cette offre.",
     "created": "Offre de prix créée avec succès.",
     "alreadyAcceptedOrRejected": "Cette offre est déjà acceptée, rejetée ou annulée.",
     "notPending": "Cette offre n'est pas en attente de réponse.",
@@ -238,7 +270,7 @@
     "addedToCart": "Produit avec le prix négocié ajouté au panier.",
     "buyerNotOwner": "Vous n'êtes pas le propriétaire de cette offre.",
     "priceNotValid": "Le prix proposé doit être un nombre positif.",
-    "offerAlreadyMade": "Une offre pour ce produit est déjà en attente ou a été acceptée.",
+    "offerAlreadyMade": "Une offre pour ce produit ({0}) est déjà en attente ou a été acceptée.",
     "productOutOfStock": "Le produit n'est plus en stock.",
     "acceptLinkExpired": "Le lien pour accepter l'offre est invalide ou a expiré."
   },
@@ -246,7 +278,7 @@
     "notFound": "Commande introuvable.",
     "cartEmpty": "Votre panier est vide.",
     "noAddress": "Veuillez fournir une adresse de livraison valide.",
-    "productOutOfStock": "Le produit '{0}' n'est pas disponible en quantité suffisante. Stock disponible: {1}, demandé: {2}.",
+    "productOutOfStock": "Le produit '{0}' ({1}) n'est pas disponible en quantité suffisante. Stock disponible: {2}, demandé: {3}.",
     "created": "Votre commande a été créée avec succès et est en attente d'approbation par l'administrateur.",
     "cancelled": "Commande annulée avec succès.",
     "cannotCancel": "Impossible d'annuler une commande dont le statut est '{0}'.",
@@ -265,6 +297,13 @@
     "ordersRetrieved": "Commandes de votre boutique récupérées avec succès.",
     "offersRetrieved": "Offres pour vos produits récupérées avec succès.",
     "accessDeniedShop": "Accès refusé. Cette action est réservée au propriétaire de la boutique ou à l'administrateur.",
-    "notASeller": "Vous n'êtes pas enregistré comme vendeur."
+    "notASeller": "Vous n'êtes pas enregistré comme vendeur.",
+    "variationNotFound": "Variation de produit introuvable.",
+    "variationCreated": "Variation de produit créée avec succès.",
+    "variationUpdated": "Variation de produit mise à jour avec succès.",
+    "variationDeleted": "Variation de produit supprimée avec succès.",
+    "variationBelongsToDifferentProduct": "Cette variation n'appartient pas à ce produit.",
+    "variationImagesUploaded": "{0} images de variation téléchargées avec succès.",
+    "variationImageRemoved": "Image de variation supprimée avec succès."
   }
 }

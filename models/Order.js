@@ -2,9 +2,14 @@
 const mongoose = require('mongoose');
 
 const orderItemSchema = new mongoose.Schema({
-    product: {
+    product: { // AJOUTÉ : Référence au produit parent pour une facilité de population
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Product',
+        required: true
+    },
+    productVariation: { // MODIFIÉ : Référence à la variation de produit commandée
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'ProductVariation',
         required: true
     },
     quantity: {
@@ -33,17 +38,17 @@ const orderSchema = new mongoose.Schema({
         required: true,
         min: 0
     },
-    currency: { // AJOUTÉ : La devise utilisée pour cette commande
+    currency: {
         type: String,
         enum: ['FC', 'USD'],
         default: 'FC'
     },
-    exchangeRateUsed: { // AJOUTÉ : Le taux de change USD_TO_FC_RATE au moment de la commande
+    exchangeRateUsed: {
         type: Number,
         min: 1,
-        default: 1 // Si FC par défaut, le taux est 1 si on considère FC comme base
+        default: 1
     },
-    shippingAddress: { // Adresse de livraison au moment de la commande
+    shippingAddress: {
         street: { type: String, required: true },
         city: { type: String, required: true },
         state: { type: String, required: true },
@@ -61,19 +66,19 @@ const orderSchema = new mongoose.Schema({
         default: 'pay_on_delivery',
         required: true
     },
-    isPaid: { // AJOUTÉ : Pour le mode pay-on-delivery, sera mis à jour après la livraison par l'admin
+    isPaid: {
         type: Boolean,
         default: false
     },
-    adminNotes: { // Raison de rejet, commentaires de l'admin
+    adminNotes: {
         type: String
     },
-    deliveryTracking: [{ // Historique des statuts de livraison
+    deliveryTracking: [{
         status: { type: String, required: true },
         timestamp: { type: Date, default: Date.now },
-        location: { type: String } // Optionnel: lieu de la mise à jour
+        location: { type: String }
     }],
-    offer: { // Référence à l'offre si la commande est le résultat d'une négociation
+    offer: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Offer'
     }
