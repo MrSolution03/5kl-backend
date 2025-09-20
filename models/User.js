@@ -75,11 +75,16 @@ const userSchema = new mongoose.Schema({
     }],
     orderHistoryArchivedAt: Date,
     offerHistoryArchivedAt: Date,
-    preferredCurrency: { // CHAMP AJOUTÉ : Pour la devise préférée de l'utilisateur
-        type: String,
-        uppercase: true,
-        enum: ['FC', 'USD'], // Ajoutez d'autres devises si supportées
-        default: process.env.DEFAULT_CURRENCY || 'FC'
+    isBanned: { // AJOUTÉ : Champ pour indiquer si l'utilisateur est banni
+        type: Boolean,
+        default: false
+    },
+    bannedReason: { // AJOUTÉ : Raison du bannissement
+        type: String
+    },
+    bannedBy: { // AJOUTÉ : Qui a banni l'utilisateur
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
     }
 }, {
     timestamps: true

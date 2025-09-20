@@ -1,8 +1,9 @@
 // 5kl-backend/controllers/userController.js
 const User = require('../models/User');
-const Order = require('../models/Order'); // Pour le tableau de bord
-const Offer = require('../models/Offer'); // Pour le tableau de bord
-const Product = require('../models/Product'); // Pour les recommandations
+const Order = require('../models/Order');
+const Offer = require('../models/Offer');
+const Product = require('../models/Product');
+const AdminMessage = require('../models/AdminMessage'); // AJOUTÉ : pour récupérer les messages de l'admin
 const Joi = require('joi');
 const AppError = require('../utils/appError');
 const bcrypt = require('bcryptjs');
@@ -25,7 +26,7 @@ const addressSchema = Joi.object({
     isDefault: Joi.boolean().optional().default(false)
 });
 
-// Validation schema for changing password (NEW)
+// Validation schema for changing password (unchanged)
 const changePasswordSchema = Joi.object({
     currentPassword: Joi.string().required(),
     newPassword: Joi.string().min(6).required(),
@@ -115,29 +116,22 @@ exports.changePassword = async (req, res, next) => {
 
         const { currentPassword, newPassword } = value;
 
-        // Récupérer l'utilisateur avec le mot de passe (select: false)
         const user = await User.findById(req.user.id).select('+password');
 
         if (!user) {
             return next(new AppError('user.notFound', 404));
         }
 
-        // Si l'utilisateur s'est connecté via OAuth et n'a pas de mot de passe local
         if (!user.password) {
             return next(new AppError('user.passwordUpdateForbidden', 403));
         }
 
-        // Vérifier si le mot de passe actuel est correct
         if (!(await user.matchPassword(currentPassword))) {
             return next(new AppError('auth.currentPasswordInvalid', 401));
         }
 
-        // Mettre à jour le mot de passe
         user.password = newPassword;
-        await user.save(); // Le middleware pre('save') hachera le nouveau mot de passe
-
-        // TODO: Invalider tous les tokens JWT précédents pour cet utilisateur (complex, requires token blacklist or refresh tokens)
-        // Pour l'instant, l'utilisateur devra se reconnecter avec le nouveau mot de passe.
+        await user.save();
 
         res.status(200).json({
             success: true,
@@ -306,10 +300,8 @@ exports.getBuyerDashboard = async (req, res, next) => {
         const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
 
-        // Récupérer les 5 dernières commandes (ou paginées)
         const orders = await Order.find({
             user: userId,
-            // Filtrer les commandes archivées si la date d'archivage est définie
             ...(req.user.orderHistoryArchivedAt && { createdAt: { $gt: req.user.orderHistoryArchivedAt } })
         })
         .sort('-createdAt')
@@ -323,10 +315,8 @@ exports.getBuyerDashboard = async (req, res, next) => {
         });
 
 
-        // Récupérer les 5 dernières offres (ou paginées)
         const offers = await Offer.find({
             buyer: userId,
-            // Filtrer les offres archivées
             ...(req.user.offerHistoryArchivedAt && { createdAt: { $gt: req.user.offerHistoryArchivedAt } })
         })
         .sort('-lastActivity')
@@ -344,7 +334,7 @@ exports.getBuyerDashboard = async (req, res, next) => {
             success: true,
             message: req.t('user.dashboardRetrieved'),
             data: {
-                profile: req.user, // Le profil de l'utilisateur est déjà dans req.user (sans mdp)
+                profile: req.user,
                 orders: {
                     data: orders,
                     total: totalOrders,
@@ -373,7 +363,6 @@ exports.archiveOrderHistory = async (req, res, next) => {
     try {
         const userId = req.user.id;
 
-        // On n'archive pas les commandes en cours ou en attente, seulement celles terminées ou annulées
         const ordersToArchive = await Order.countDocuments({
             user: userId,
             status: { $in: ['delivered', 'cancelled', 'returned', 'rejected'] },
@@ -384,7 +373,6 @@ exports.archiveOrderHistory = async (req, res, next) => {
             return next(new AppError('user.noHistoryToDelete', 404));
         }
 
-        // Mettre à jour la date d'archivage dans le profil de l'utilisateur
         await User.findByIdAndUpdate(userId, { orderHistoryArchivedAt: Date.now() });
 
         res.status(200).json({
@@ -406,7 +394,6 @@ exports.archiveOfferHistory = async (req, res, next) => {
     try {
         const userId = req.user.id;
 
-        // On n'archive pas les offres en attente
         const offersToArchive = await Offer.countDocuments({
             buyer: userId,
             status: { $in: ['accepted', 'rejected', 'retracted', 'expired'] },
@@ -438,15 +425,13 @@ exports.archiveOfferHistory = async (req, res, next) => {
 exports.getRecommendedProducts = async (req, res, next) => {
     try {
         const userId = req.user.id;
-        const user = await User.findById(userId); // Récupérer l'utilisateur pour les produits récemment consultés
+        const user = await User.findById(userId);
 
         let recommendations = [];
 
-        // Logique de recommandation basique
-        // 1. Basé sur les 3 derniers produits consultés (si disponibles)
         const lastViewedProductIds = user.lastViewedProducts
-            .sort((a, b) => b.timestamp - a.timestamp) // Plus récent en premier
-            .slice(0, 3) // Les 3 derniers
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 3)
             .map(item => item.product);
 
         let productsFromSimilarCategories = [];
@@ -456,7 +441,7 @@ exports.getRecommendedProducts = async (req, res, next) => {
 
             productsFromSimilarCategories = await Product.find({
                 category: { $in: categories },
-                _id: { $nin: lastViewedProductIds }, // Exclure les produits déjà consultés
+                _id: { $nin: lastViewedProductIds },
                 isAvailable: true
             })
             .limit(5)
@@ -465,10 +450,9 @@ exports.getRecommendedProducts = async (req, res, next) => {
             .populate('brand', 'name');
         }
 
-        // 2. Si pas assez de recommandations, ajouter des produits populaires/récents
         if (productsFromSimilarCategories.length < 5) {
             const popularProducts = await Product.find({ isAvailable: true, _id: { $nin: lastViewedProductIds } })
-                .sort('-createdAt') // Ou par un champ de "popularité" si vous en avez un
+                .sort('-createdAt')
                 .limit(10)
                 .populate('shop', 'name')
                 .populate('category', 'name')
@@ -490,8 +474,55 @@ exports.getRecommendedProducts = async (req, res, next) => {
     }
 };
 
+// --- AJOUTÉ : Gestion des Messages Utilisateur ---
 
-// --- Admin-only functions (unchanged) ---
+/**
+ * @desc    Obtenir les messages envoyés par l'admin à l'utilisateur ou à son rôle
+ * @route   GET /api/users/me/messages
+ * @access  Private (User)
+ */
+exports.getAdminMessages = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const userRoles = req.user.roles;
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const skip = (page - 1) * limit;
+
+        const query = {
+            $or: [
+                { recipientType: 'all' },
+                { recipientType: 'user', recipientUser: userId },
+                ...(userRoles.includes('buyer') ? [{ recipientType: 'buyer' }] : []),
+                ...(userRoles.includes('seller') ? [{ recipientType: 'seller' }] : []),
+            ]
+        };
+
+        const messages = await AdminMessage.find(query)
+            .populate('sender', 'username email')
+            .sort('-sentAt')
+            .skip(skip)
+            .limit(limit);
+
+        const totalMessages = await AdminMessage.countDocuments(query);
+
+        res.status(200).json({
+            success: true,
+            message: req.t('user.messagesRetrieved'),
+            count: messages.length,
+            total: totalMessages,
+            page,
+            pages: Math.ceil(totalMessages / limit),
+            data: messages
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+// --- Admin-only functions (inchangé) ---
 
 exports.getUsers = async (req, res, next) => {
     try {
@@ -535,7 +566,7 @@ exports.getUserById = async (req, res, next) => {
 
 exports.updateUserRole = async (req, res, next) => {
     try {
-        const { error, value } = require('../controllers/adminController').updateUserRoleSchema.validate(req.body); // Utilise le schéma de l'admin
+        const { error, value } = require('../controllers/adminController').updateUserRoleSchema.validate(req.body);
         if (error) {
             error.statusCode = 400;
             error.isJoi = true;

@@ -8,7 +8,8 @@ const mongoSanitize = require('express-mongo-sanitize');
 const passport = require('passport');
 const AppError = require('./utils/appError');
 const i18nMiddleware = require('./middlewares/i18nMiddleware');
-const CurrencyRate = require('./models/CurrencyRate'); // AJOUTÉ : Importation du modèle CurrencyRate
+const CurrencyRate = require('./models/CurrencyRate');
+const AdminMessage = require('./models/AdminMessage'); // AJOUTÉ : Importation du modèle AdminMessage
 
 // Charger les variables d'environnement
 dotenv.config();
@@ -41,18 +42,17 @@ const app = express();
 require('./config/db');
 
 // Middleware pour initialiser le taux de change si non existant (au démarrage)
-// Ceci est pour garantir qu'un document CurrencyRate existe toujours
 app.use(async (req, res, next) => {
     try {
         let currencyRate = await CurrencyRate.findOne();
         if (!currencyRate) {
-            currencyRate = await CurrencyRate.create({ USD_TO_FC_RATE: 2700, lastUpdatedBy: null }); // Admin pourra le modifier
+            currencyRate = await CurrencyRate.create({ USD_TO_FC_RATE: 2700, lastUpdatedBy: null });
             console.log('Default CurrencyRate document created.');
         }
         next();
     } catch (error) {
         console.error('Failed to ensure CurrencyRate document exists:', error);
-        next(error); // Passer l'erreur au gestionnaire d'erreurs
+        next(error);
     }
 });
 

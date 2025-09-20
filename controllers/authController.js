@@ -4,9 +4,10 @@ const generateToken = require('../utils/generateToken');
 const Joi = require('joi');
 const AppError = require('../utils/appError');
 const bcrypt = require('bcryptjs');
+const sendEmail = require('../utils/sendEmail');
 const crypto = require('crypto');
 
-// Schémas de validation Joi
+// --- Schemas de Validation Joi (inchangés) ---
 const registerSchema = Joi.object({
     username: Joi.string().min(3).max(30).optional(),
     email: Joi.string().email().required(),
@@ -27,8 +28,11 @@ const forgotPasswordSchema = Joi.object({
 
 const resetPasswordSchema = Joi.object({
     password: Joi.string().min(6).required(),
-    passwordConfirm: Joi.string().valid(Joi.ref('password')).required() // Confirmer le nouveau mot de passe
+    passwordConfirm: Joi.string().valid(Joi.ref('password')).required()
 });
+
+
+// --- Fonctions des Contrôleurs ---
 
 /**
  * @desc    Enregistrer un nouvel utilisateur (méthode traditionnelle)
@@ -37,7 +41,7 @@ const resetPasswordSchema = Joi.object({
  */
 exports.register = async (req, res, next) => {
     try {
-        const { error, value } = registerSchema.validate(req.body, { abortEarly: false });
+        const { error, value } = registerSchema.validate(req.body);
         if (error) {
             error.statusCode = 400;
             error.isJoi = true;
@@ -96,7 +100,7 @@ exports.register = async (req, res, next) => {
  */
 exports.login = async (req, res, next) => {
     try {
-        const { error, value } = loginSchema.validate(req.body, { abortEarly: false });
+        const { error, value } = loginSchema.validate(req.body);
         if (error) {
             error.statusCode = 400;
             error.isJoi = true;
@@ -109,6 +113,11 @@ exports.login = async (req, res, next) => {
 
         if (!user || !(await user.matchPassword(password))) {
             return next(new AppError('auth.invalidCredentials', 401));
+        }
+
+        // AJOUTÉ : Vérifier si l'utilisateur est banni
+        if (user.isBanned) {
+            return next(new AppError('auth.userBanned', 403, [user.bannedReason || req.t('auth.defaultBanReason')])); // Nouvelle clé 'auth.defaultBanReason'
         }
 
         const token = generateToken(user._id);
@@ -142,6 +151,14 @@ exports.googleCallback = (req, res, next) => {
         return next(new AppError('auth.googleAuthFailed', 401));
     }
 
+    // AJOUTÉ : Vérifier si l'utilisateur est banni (pour OAuth aussi)
+    if (req.user.isBanned) {
+        // Rediriger vers le frontend avec un message d'erreur si l'utilisateur est banni
+        // Ou renvoyer une erreur JSON si la redirection n'est pas possible/souhaitée
+        const bannedReason = req.user.bannedReason || req.t('auth.defaultBanReason');
+        return res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(req.t('auth.userBanned', bannedReason))}`);
+    }
+
     const token = generateToken(req.user._id);
 
     res.status(200).json({
@@ -169,6 +186,12 @@ exports.googleCallback = (req, res, next) => {
 exports.facebookCallback = (req, res, next) => {
     if (!req.user) {
         return next(new AppError('auth.facebookAuthFailed', 401));
+    }
+
+    // AJOUTÉ : Vérifier si l'utilisateur est banni (pour OAuth aussi)
+    if (req.user.isBanned) {
+        const bannedReason = req.user.bannedReason || req.t('auth.defaultBanReason');
+        return res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(req.t('auth.userBanned', bannedReason))}`);
     }
 
     const token = generateToken(req.user._id);
@@ -206,27 +229,22 @@ exports.forgotPassword = async (req, res, next) => {
 
         const user = await User.findOne({ email: value.email });
         if (!user) {
-            // Pour des raisons de sécurité, ne pas indiquer si l'email existe ou non.
-            // On envoie toujours une réponse de succès, que l'email existe ou non.
             return res.status(200).json({
                 success: true,
-                message: req.t('auth.forgotPasswordEmailSent') // Nouvelle clé
+                message: req.t('auth.forgotPasswordEmailSent')
             });
         }
 
-        // Obtenir le token de réinitialisation
         const resetToken = user.getResetPasswordToken();
-        await user.save({ validateBeforeSave: false }); // Sauvegarde le token et l'expiration sans valider le mot de passe
+        await user.save({ validateBeforeSave: false });
 
-        // Créer l'URL de réinitialisation
         const resetUrl = `${process.env.FRONTEND_URL}/resetpassword/${resetToken}`;
-
-        const message = req.t('auth.forgotPasswordEmailContent', resetUrl); // Nouvelle clé avec placeholder
+        const message = req.t('auth.forgotPasswordEmailContent', resetUrl);
 
         try {
             await sendEmail({
                 email: user.email,
-                subject: req.t('auth.forgotPasswordEmailSubject'), // Nouvelle clé
+                subject: req.t('auth.forgotPasswordEmailSubject'),
                 message
             });
 
@@ -239,7 +257,7 @@ exports.forgotPassword = async (req, res, next) => {
             user.resetPasswordToken = undefined;
             user.resetPasswordExpires = undefined;
             await user.save({ validateBeforeSave: false });
-            return next(new AppError('auth.emailSendFailed', 500)); // Nouvelle clé
+            return next(new AppError('auth.emailSendFailed', 500));
         }
 
     } catch (error) {
@@ -261,7 +279,6 @@ exports.resetPassword = async (req, res, next) => {
             return next(error);
         }
 
-        // Hacher le token de l'URL pour le comparer avec celui de la base de données
         const resetPasswordToken = crypto
             .createHash('sha256')
             .update(req.params.resettoken)
@@ -269,25 +286,23 @@ exports.resetPassword = async (req, res, next) => {
 
         const user = await User.findOne({
             resetPasswordToken,
-            resetPasswordExpires: { $gt: Date.now() } // Token non expiré
-        }).select('+password'); // Sélectionner le mot de passe pour le modifier
+            resetPasswordExpires: { $gt: Date.now() }
+        }).select('+password');
 
         if (!user) {
-            return next(new AppError('auth.invalidResetToken', 400)); // Nouvelle clé
+            return next(new AppError('auth.invalidResetToken', 400));
         }
 
-        // Définir le nouveau mot de passe
         user.password = value.password;
         user.resetPasswordToken = undefined;
         user.resetPasswordExpires = undefined;
-        await user.save(); // Le middleware pre('save') hachera le nouveau mot de passe
+        await user.save();
 
-        // Générer un nouveau token de connexion pour l'utilisateur
         const token = generateToken(user._id);
 
         res.status(200).json({
             success: true,
-            message: req.t('auth.passwordResetSuccess'), // Nouvelle clé
+            message: req.t('auth.passwordResetSuccess'),
             token,
             user: {
                 id: user._id,

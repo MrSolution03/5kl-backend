@@ -19,7 +19,9 @@
     "passwordResetSuccess": "Votre mot de passe a été réinitialisé avec succès.",
     "passwordMismatch": "Les nouveaux mots de passe ne correspondent pas.",
     "currentPasswordInvalid": "Le mot de passe actuel est incorrect.",
-    "passwordChanged": "Votre mot de passe a été modifié avec succès. Veuillez vous reconnecter."
+    "passwordChanged": "Votre mot de passe a été modifié avec succès. Veuillez vous reconnecter.",
+    "userBanned": "Votre compte a été banni. Raison : {0}",
+    "defaultBanReason": "Non spécifiée."
   },
   "user": {
     "notFound": "Utilisateur introuvable.",
@@ -43,7 +45,8 @@
     "offerHistoryCleared": "Historique des offres archivé avec succès.",
     "noHistoryToDelete": "Aucun historique à archiver pour le moment.",
     "recommendationsRetrieved": "Recommandations de produits récupérées avec succès.",
-    "passwordUpdateForbidden": "Vous ne pouvez pas modifier le mot de passe pour les comptes connectés via OAuth."
+    "passwordUpdateForbidden": "Vous ne pouvez pas modifier le mot de passe pour les comptes connectés via OAuth.",
+    "messagesRetrieved": "Messages récupérés avec succès."
   },
   "errors": {
     "notFound": "Impossible de trouver {0} sur ce serveur !",
@@ -198,7 +201,20 @@
     "cannotMessageNonPendingOffer": "Vous ne pouvez pas ajouter de message à une offre non en attente.",
     "currencyRateNotFound": "Taux de conversion introuvable.",
     "currencyRateUpdated": "Taux de conversion mis à jour avec succès.",
-    "invalidCurrencyRate": "Le taux de conversion doit être un nombre positif."
+    "invalidCurrencyRate": "Le taux de conversion doit être un nombre positif.",
+    "cannotMarkAsPaidNotDelivered": "Impossible de marquer comme payée une commande dont le statut est '{0}'. Elle doit être livrée.",
+    "orderAlreadyPaid": "Cette commande est déjà marquée comme payée.",
+    "orderMarkedAsPaid": "Commande marquée comme payée avec succès.",
+    "orderMarkedAsUnpaid": "Commande marquée comme impayée avec succès.",
+    "userBanned": "Utilisateur banni avec succès.",
+    "userUnbanned": "Utilisateur débanni avec succès.",
+    "banReasonRequired": "La raison du bannissement est requise.",
+    "cannotBanSelf": "Vous ne pouvez pas vous bannir vous-même.",
+    "userAlreadyBanned": "Cet utilisateur est déjà banni.",
+    "userNotBanned": "Cet utilisateur n'est pas banni.",
+    "messageSentSuccess": "Message envoyé avec succès.",
+    "invalidRecipientType": "Type de destinataire invalide. Doit être 'all', 'buyer', 'seller' ou 'user'.",
+    "specificUserRequired": "Un ID utilisateur spécifique est requis pour le type de destinataire 'user'."
   },
   "cart": {
     "notFound": "Panier introuvable.",

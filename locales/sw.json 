@@ -19,7 +19,9 @@
     "passwordResetSuccess": "Nenosiri lako limewekwa upya kwa mafanikio.",
     "passwordMismatch": "Nywila mpya hazifanani.",
     "currentPasswordInvalid": "Nenosiri la sasa si sahihi.",
-    "passwordChanged": "Nenosiri lako limebadilishwa kwa mafanikio. Tafadhali ingia tena."
+    "passwordChanged": "Nenosiri lako limebadilishwa kwa mafanikio. Tafadhali ingia tena.",
+    "userBanned": "Akaunti yako imepigwa marufuku. Sababu: {0}",
+    "defaultBanReason": "Haijabainishwa."
   },
   "user": {
     "notFound": "Mtumiaji hajapatikana.",
@@ -43,7 +45,8 @@
     "offerHistoryCleared": "Historia ya ofa imehifadhiwa kwa mafanikio.",
     "noHistoryToDelete": "Hakuna historia ya kuhifadhi kwa sasa.",
     "recommendationsRetrieved": "Mapendekezo ya bidhaa yamepatikana kwa mafanikio.",
-    "passwordUpdateForbidden": "Huwezi kubadilisha nenosiri kwa akaunti zilizounganishwa kupitia OAuth."
+    "passwordUpdateForbidden": "Huwezi kubadilisha nenosiri kwa akaunti zilizounganishwa kupitia OAuth.",
+    "messagesRetrieved": "Ujumbe umepokewa kwa mafanikio."
   },
   "errors": {
     "notFound": "Haiwezi kupatikana {0} kwenye seva hii!",
@@ -161,7 +164,8 @@
     "array.base": "Uga {#label} lazima uwe orodha.",
     "object.base": "Uga {#label} lazima uwe kitu.",
     "object.unknown": "Uga {#label} hauruhusiwi.",
-    "any.only": "Uga {#label} lazima uwe sawa na {#valids}."
+    "any.only": "Uga {#label} lazima uwe sawa na {#valids}.",
+    "string.pattern.base": "Uga {#label} si halali."
   },
   "admin": {
     "userNotFound": "Mtumiaji hajapatikana.",
@@ -197,7 +201,20 @@
     "cannotMessageNonPendingOffer": "Haiwezi kuongeza ujumbe kwenye ofa isiyosubiri jibu.",
     "currencyRateNotFound": "Kiwango cha ubadilishaji fedha hakijapatikana.",
     "currencyRateUpdated": "Kiwango cha ubadilishaji fedha kimesasishwa kwa mafanikio.",
-    "invalidCurrencyRate": "Kiwango cha ubadilishaji lazima kiwe nambari chanya."
+    "invalidCurrencyRate": "Kiwango cha ubadilishaji lazima kiwe nambari chanya.",
+    "cannotMarkAsPaidNotDelivered": "Haiwezi kuweka kama imelipwa agizo lenye hali '{0}'. Lazima liwe limetumwa.",
+    "orderAlreadyPaid": "Agizo hili tayari limewekwa kama limelipwa.",
+    "orderMarkedAsPaid": "Agizo limewekwa kama limelipwa kwa mafanikio.",
+    "orderMarkedAsUnpaid": "Agizo limewekwa kama halijalipwa kwa mafanikio.",
+    "userBanned": "Mtumiaji amepigwa marufuku kwa mafanikio.",
+    "userUnbanned": "Mtumiaji amechambuliwa kwa mafanikio.",
+    "banReasonRequired": "Sababu ya marufuku inahitajika.",
+    "cannotBanSelf": "Huwezi kujipiga marufuku mwenyewe.",
+    "userAlreadyBanned": "Mtumiaji huyu tayari amepigwa marufuku.",
+    "userNotBanned": "Mtumiaji huyu hajapigwa marufuku.",
+    "messageSentSuccess": "Ujumbe umetumwa kwa mafanikio.",
+    "invalidRecipientType": "Aina ya mpokeaji si halali. Lazima iwe 'all', 'buyer', 'seller' au 'user'.",
+    "specificUserRequired": "Kitambulisho maalum cha mtumiaji kinahitajika kwa aina ya mpokeaji 'user'."
   },
   "cart": {
     "notFound": "Kikapu hakijapatikana.",

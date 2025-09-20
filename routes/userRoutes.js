@@ -13,7 +13,7 @@ router.route('/me')
     .put(userController.updateUser)
     .delete(userController.deleteUser); // L'utilisateur peut supprimer son propre compte
 
-// Route pour changer le mot de passe (NEW)
+// Route pour changer le mot de passe
 router.put('/me/changepassword', userController.changePassword);
 
 // Routes pour les adresses de l'utilisateur
@@ -23,15 +23,18 @@ router.route('/me/addresses/:addressId')
     .put(userController.updateUserAddress)
     .delete(userController.removeAddress);
 
-// Route pour le tableau de bord de l'acheteur (NEW)
+// Route pour le tableau de bord de l'acheteur
 router.get('/me/dashboard', authorize('buyer'), userController.getBuyerDashboard);
 
-// Routes pour archiver l'historique (NEW)
+// Routes pour archiver l'historique
 router.delete('/me/history/orders', authorize('buyer'), userController.archiveOrderHistory);
 router.delete('/me/history/offers', authorize('buyer'), userController.archiveOfferHistory);
 
-// Routes pour les recommandations (NEW)
+// Routes pour les recommandations
 router.get('/me/recommendations', authorize('buyer'), userController.getRecommendedProducts);
+
+// AJOUTÉ : Routes pour les messages envoyés par l'admin à l'utilisateur
+router.get('/me/messages', userController.getAdminMessages);
 
 
 // Routes accessibles uniquement par l'administrateur (inchangées)

@@ -17,6 +17,9 @@ router.route('/users/:id')
     .put(adminController.updateUserRole)
     .delete(adminController.deleteUser);
 
+router.put('/users/:id/ban', adminController.banUser);
+router.put('/users/:id/unban', adminController.unbanUser);
+
 
 // Gestion des boutiques
 router.route('/shops')
@@ -45,7 +48,6 @@ router.route('/orders/:id/reject')
 router.route('/orders/:id/status')
     .put(adminController.updateOrderStatus);
 
-// AJOUTÉ : Route pour marquer une commande comme payée
 router.route('/orders/:id/mark-as-paid')
     .put(adminController.markOrderAsPaid);
 
@@ -81,10 +83,15 @@ router.route('/brands/:id')
     .put(adminController.updateBrand)
     .delete(adminController.deleteBrand);
 
-// AJOUTÉ : Gestion des Taux de Change
+// Gestion des Taux de Change
 router.route('/currency-rate')
     .get(adminController.getCurrencyRate)
     .put(adminController.updateCurrencyRate);
+
+// AJOUTÉ : Routes de gestion des messages par l'admin
+router.route('/messages')
+    .post(adminController.sendMessage) // Envoyer un message
+    .get(adminController.getSentMessages); // Voir les messages envoyés par cet admin
 
 
 module.exports = router;

@@ -19,7 +19,9 @@
     "passwordResetSuccess": "Your password has been reset successfully.",
     "passwordMismatch": "The new passwords do not match.",
     "currentPasswordInvalid": "The current password is incorrect.",
-    "passwordChanged": "Your password has been changed successfully. Please log in again."
+    "passwordChanged": "Your password has been changed successfully. Please log in again.",
+    "userBanned": "Your account has been banned. Reason: {0}",
+    "defaultBanReason": "Not specified."
   },
   "user": {
     "notFound": "User not found.",
@@ -43,7 +45,8 @@
     "offerHistoryCleared": "Offer history archived successfully.",
     "noHistoryToDelete": "No history to archive at this time.",
     "recommendationsRetrieved": "Product recommendations retrieved successfully.",
-    "passwordUpdateForbidden": "You cannot change the password for accounts connected via OAuth."
+    "passwordUpdateForbidden": "You cannot change the password for accounts connected via OAuth.",
+    "messagesRetrieved": "Messages retrieved successfully."
   },
   "errors": {
     "notFound": "Can't find {0} on this server!",
@@ -198,7 +201,20 @@
     "cannotMessageNonPendingOffer": "You cannot add a message to a non-pending offer.",
     "currencyRateNotFound": "Currency exchange rate not found.",
     "currencyRateUpdated": "Currency exchange rate updated successfully.",
-    "invalidCurrencyRate": "The exchange rate must be a positive number."
+    "invalidCurrencyRate": "The exchange rate must be a positive number.",
+    "cannotMarkAsPaidNotDelivered": "Cannot mark as paid an order with status '{0}'. It must be delivered.",
+    "orderAlreadyPaid": "This order is already marked as paid.",
+    "orderMarkedAsPaid": "Order marked as paid successfully.",
+    "orderMarkedAsUnpaid": "Order marked as unpaid successfully.",
+    "userBanned": "User banned successfully.",
+    "userUnbanned": "User unbanned successfully.",
+    "banReasonRequired": "Ban reason is required.",
+    "cannotBanSelf": "You cannot ban yourself.",
+    "userAlreadyBanned": "This user is already banned.",
+    "userNotBanned": "This user is not banned.",
+    "messageSentSuccess": "Message sent successfully.",
+    "invalidRecipientType": "Invalid recipient type. Must be 'all', 'buyer', 'seller' or 'user'.",
+    "specificUserRequired": "A specific user ID is required for recipient type 'user'."
   },
   "cart": {
     "notFound": "Cart not found.",

@@ -6,11 +6,13 @@ const Order = require('../models/Order');
 const Offer = require('../models/Offer');
 const Category = require('../models/Category');
 const Brand = require('../models/Brand');
-const CurrencyRate = require('../models/CurrencyRate'); // AJOUTÉ : Modèle pour les taux de change
+const CurrencyRate = require('../models/CurrencyRate');
+const AdminMessage = require('../models/AdminMessage'); // AJOUTÉ : Modèle pour les messages admin
 const AppError = require('../utils/appError');
 const Joi = require('joi');
 const { cloudinary } = require('../utils/cloudinary');
-const { SUPPORTED_CURRENCIES } = require('../utils/i18n'); // AJOUTÉ pour validation des devises
+const { SUPPORTED_CURRENCIES } = require('../utils/i18n');
+
 
 // --- Schemas de Validation Joi ---
 
@@ -53,20 +55,30 @@ const brandUpdateSchema = Joi.object({
     logo: Joi.string().uri().optional().allow(null, '')
 });
 
-// AJOUTÉ : Schéma pour la mise à jour du taux de change
 const updateCurrencyRateSchema = Joi.object({
     USD_TO_FC_RATE: Joi.number().min(1).required()
 });
 
-// AJOUTÉ : Schéma pour marquer une commande comme payée
 const markOrderAsPaidSchema = Joi.object({
     isPaid: Joi.boolean().required()
+});
+
+const banUserSchema = Joi.object({
+    reason: Joi.string().min(10).required()
+});
+
+// AJOUTÉ : Schéma pour envoyer un message
+const sendMessageSchema = Joi.object({
+    recipientType: Joi.string().valid('all', 'buyer', 'seller', 'user').required(),
+    recipientId: Joi.string().hex().length(24).optional().allow(null), // Seulement si recipientType est 'user'
+    subject: Joi.string().min(3).max(255).required(),
+    message: Joi.string().min(10).required()
 });
 
 
 // --- Fonctions des Contrôleurs ---
 
-// --- Gestion des utilisateurs (inchangé) ---
+// --- Gestion des utilisateurs ---
 
 /**
  * @desc    Obtenir tous les utilisateurs
@@ -178,6 +190,79 @@ exports.deleteUser = async (req, res, next) => {
     }
 };
 
+/**
+ * @desc    Bannir un utilisateur
+ * @route   PUT /api/admin/users/:id/ban
+ * @access  Private (Admin)
+ */
+exports.banUser = async (req, res, next) => {
+    try {
+        if (req.user.id === req.params.id) {
+            return next(new AppError('admin.cannotBanSelf', 403));
+        }
+
+        const { error, value } = banUserSchema.validate(req.body);
+        if (error) {
+            error.statusCode = 400;
+            error.isJoi = true;
+            return next(error);
+        }
+
+        const user = await User.findById(req.params.id);
+        if (!user) {
+            return next(new AppError('admin.userNotFound', 404));
+        }
+
+        if (user.isBanned) {
+            return next(new AppError('admin.userAlreadyBanned', 400));
+        }
+
+        user.isBanned = true;
+        user.bannedReason = value.reason;
+        user.bannedBy = req.user.id;
+        await user.save({ validateBeforeSave: false });
+
+        res.status(200).json({
+            success: true,
+            message: req.t('admin.userBanned'),
+            data: user
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Débannir un utilisateur
+ * @route   PUT /api/admin/users/:id/unban
+ * @access  Private (Admin)
+ */
+exports.unbanUser = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) {
+            return next(new AppError('admin.userNotFound', 404));
+        }
+
+        if (!user.isBanned) {
+            return next(new AppError('admin.userNotBanned', 400));
+        }
+
+        user.isBanned = false;
+        user.bannedReason = undefined;
+        user.bannedBy = undefined;
+        await user.save({ validateBeforeSave: false });
+
+        res.status(200).json({
+            success: true,
+            message: req.t('admin.userUnbanned'),
+            data: user
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 
 // --- Gestion des boutiques (inchangé) ---
 
@@ -273,7 +358,7 @@ exports.updateShopStatus = async (req, res, next) => {
 };
 
 
-// --- Gestion des commandes ---
+// --- Gestion des commandes (inchangé) ---
 
 /**
  * @desc    Obtenir toutes les commandes
@@ -486,20 +571,19 @@ exports.markOrderAsPaid = async (req, res, next) => {
             return next(new AppError('admin.orderNotFound', 404));
         }
 
-        // Seules les commandes livrées peuvent être marquées comme payées dans un système P.O.D.
         if (order.status !== 'delivered') {
-            return next(new AppError('admin.cannotMarkAsPaidNotDelivered', 400, [order.status])); // Nouvelle clé
+            return next(new AppError('admin.cannotMarkAsPaidNotDelivered', 400, [order.status]));
         }
         if (order.isPaid && value.isPaid) {
-            return next(new AppError('admin.orderAlreadyPaid', 400)); // Nouvelle clé
+            return next(new AppError('admin.orderAlreadyPaid', 400));
         }
 
-        order.isPaid = value.isPaid; // True or false
+        order.isPaid = value.isPaid;
         await order.save();
 
         res.status(200).json({
             success: true,
-            message: value.isPaid ? req.t('admin.orderMarkedAsPaid') : req.t('admin.orderMarkedAsUnpaid'), // Nouvelles clés
+            message: value.isPaid ? req.t('admin.orderMarkedAsPaid') : req.t('admin.orderMarkedAsUnpaid'),
             data: order
         });
     } catch (error) {
@@ -597,7 +681,7 @@ exports.acceptOffer = async (req, res, next) => {
             return next(new AppError('admin.offerAlreadyAcceptedOrRejected', 400));
         }
 
-        if (value.acceptedPrice < offer.product.price) { // Exemple de règle métier
+        if (value.acceptedPrice < offer.product.price) {
             return next(new AppError('admin.invalidOfferPrice', 400));
         }
 
@@ -865,7 +949,7 @@ exports.deleteBrand = async (req, res, next) => {
     }
 };
 
-// --- AJOUTÉ : Gestion des Taux de Change ---
+// --- Gestion des Taux de Change (inchangé) ---
 
 /**
  * @desc    Obtenir le taux de conversion USD_TO_FC_RATE
@@ -874,10 +958,9 @@ exports.deleteBrand = async (req, res, next) => {
  */
 exports.getCurrencyRate = async (req, res, next) => {
     try {
-        // Crée le document si inexistant, sinon le récupère
         let currencyRate = await CurrencyRate.findOne();
         if (!currencyRate) {
-            currencyRate = await CurrencyRate.create({ USD_TO_FC_RATE: 2700, lastUpdatedBy: req.user.id }); // Taux par défaut
+            currencyRate = await CurrencyRate.create({ USD_TO_FC_RATE: 2700, lastUpdatedBy: req.user.id });
         }
 
         res.status(200).json({
@@ -905,7 +988,6 @@ exports.updateCurrencyRate = async (req, res, next) => {
 
         let currencyRate = await CurrencyRate.findOne();
         if (!currencyRate) {
-            // Si le document n'existe pas, le créer et y appliquer la mise à jour
             currencyRate = await CurrencyRate.create({
                 USD_TO_FC_RATE: value.USD_TO_FC_RATE,
                 lastUpdatedBy: req.user.id
@@ -920,6 +1002,90 @@ exports.updateCurrencyRate = async (req, res, next) => {
             success: true,
             message: req.t('admin.currencyRateUpdated'),
             data: currencyRate
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// --- AJOUTÉ : Gestion des Messages Admin ---
+
+/**
+ * @desc    Envoyer un message à un ou plusieurs destinataires
+ * @route   POST /api/admin/messages
+ * @access  Private (Admin)
+ */
+exports.sendMessage = async (req, res, next) => {
+    try {
+        const { error, value } = sendMessageSchema.validate(req.body);
+        if (error) {
+            error.statusCode = 400;
+            error.isJoi = true;
+            return next(error);
+        }
+
+        const { recipientType, recipientId, subject, message } = value;
+
+        let recipientUser = null;
+        if (recipientType === 'user') {
+            if (!recipientId) {
+                return next(new AppError('admin.specificUserRequired', 400));
+            }
+            recipientUser = await User.findById(recipientId);
+            if (!recipientUser) {
+                return next(new AppError('admin.userNotFound', 404));
+            }
+        } else if (recipientId) { // Si recipientId est fourni mais recipientType n'est pas 'user'
+            return next(new AppError('admin.invalidRecipientType', 400));
+        }
+
+        const adminMessage = await AdminMessage.create({
+            sender: req.user.id,
+            recipientType,
+            recipientUser: recipientUser ? recipientUser._id : null,
+            subject,
+            message
+        });
+
+        // TODO: Implémenter des notifications réelles (email, push, WebSocket) ici pour les destinataires
+
+        res.status(201).json({
+            success: true,
+            message: req.t('admin.messageSentSuccess'),
+            data: adminMessage
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Obtenir tous les messages envoyés par l'admin (pour cet admin spécifique)
+ * @route   GET /api/admin/messages
+ * @access  Private (Admin)
+ */
+exports.getSentMessages = async (req, res, next) => {
+    try {
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const skip = (page - 1) * limit;
+
+        const messages = await AdminMessage.find({ sender: req.user.id }) // Admin voit les messages qu'il a envoyés
+            .populate('recipientUser', 'username email')
+            .sort('-sentAt')
+            .skip(skip)
+            .limit(limit);
+
+        const totalMessages = await AdminMessage.countDocuments({ sender: req.user.id });
+
+        res.status(200).json({
+            success: true,
+            count: messages.length,
+            total: totalMessages,
+            page,
+            pages: Math.ceil(totalMessages / limit),
+            data: messages
         });
     } catch (error) {
         next(error);
