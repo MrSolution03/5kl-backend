@@ -19,12 +19,16 @@ dotenv.config();
 // Configuration CORS
 const allowedOrigins = [
     'http://localhost:8080', // AJOUTÉ POUR LE DÉBOGAGE LOCAL DU FRONTEND
-    process.env.FRONTEND_URL,
+    process.env.FRONTEND_URL, // L'URL de votre frontend déployé
 ];
 
 const corsOptions = {
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
+        // Toujours autoriser localhost en dev
+        if (process.env.NODE_ENV === 'development' && origin.startsWith('http://localhost')) {
+            return callback(null, true);
+        }
         if (allowedOrigins.indexOf(origin) === -1) {
             const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
             return callback(new Error(msg), false);
@@ -57,18 +61,29 @@ app.use(async (req, res, next) => {
     }
 });
 
+// --- Middlewares de Parsing et Sécurité des Données (ordre crucial) ---
 
-// Middlewares de sécurité et utilitaires
-app.use(i18nMiddleware);
+// 1. Parsing du corps de la requête (JSON et URL-encoded)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// 2. express-mongo-sanitize : DOIT VENIR JUSTE APRÈS LE PARSING DU CORPS
+// Il nettoie les req.body, req.query, req.params des opérateurs MongoDB malveillants.
+app.use(mongoSanitize()); 
+
+// 3. Autres middlewares de sécurité (CORS, Helmet)
 app.use(cors(corsOptions));
 app.use(helmet());
-app.use(mongoSanitize());
 
-// Initialisation de Passport
+// 4. Internationalisation (i18n) : peut venir après les middlewares de sécurité généraux
+app.use(i18nMiddleware);
+
+// 5. Initialisation de Passport
 app.use(passport.initialize());
 require('./config/passport')(passport);
+
+// --- Fin des Middlewares de Configuration Globale ---
+
 
 // Routes de l'API
 const authRoutes = require('./routes/authRoutes');
@@ -180,15 +195,17 @@ app.use((err, req, res, next) => {
         error.status = 'error';
     }
 
+
     res.status(error.statusCode).json({
         success: false,
         status: error.status,
         message: translatedMessage,
+        // En développement, inclure le stack trace pour faciliter le débogage
         ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
     });
 });
 
-const PORT = process.env.PORT || 4000; // Changé à 4000 pour correspondre à votre .env
+const PORT = process.env.PORT || 4000;
 
 app.listen(PORT, () => {
     console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
