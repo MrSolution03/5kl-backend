@@ -5,23 +5,23 @@ const authController = require('../controllers/authController');
 const passport = require('passport');
 
 // Route d'enregistrement et de connexion traditionnelles
-router.post('/register', authController.register);
-router.post('/login', authController.login);
+router.post('/authh/register', authController.register);
+router.post('/authh/login', authController.login);
 
 // Routes d'authentification Google
 // Déclenche le flux d'authentification Google
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+router.get('/authh/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 // Callback après l'authentification Google
-router.get('/google/callback',
+router.get('/authh/google/callback',
     passport.authenticate('google', { session: false, failureRedirect: '/login' }),
     authController.googleCallback
 );
 
 // Routes d'authentification Facebook
 // Déclenche le flux d'authentification Facebook
-router.get('/facebook', passport.authenticate('facebook', { scope: ['email', 'public_profile'] }));
+router.get('/authh/facebook', passport.authenticate('facebook', { scope: ['email', 'public_profile'] }));
 // Callback après l'authentification Facebook
-router.get('/facebook/callback',
+router.get('/authh/facebook/callback',
     passport.authenticate('facebook', { session: false, failureRedirect: '/login' }),
     authController.facebookCallback
 );
