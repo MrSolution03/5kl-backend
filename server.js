@@ -10,15 +10,15 @@ const AppError = require('./utils/appError');
 const i18nMiddleware = require('./middlewares/i18nMiddleware');
 const CurrencyRate = require('./models/CurrencyRate');
 const AdminMessage = require('./models/AdminMessage');
-const ProductVariation = require('./models/ProductVariation'); // AJOUTÉ : Importation du modèle ProductVariation
-const StockMovement = require('./models/StockMovement');     // AJOUTÉ : Importation du modèle StockMovement
+const ProductVariation = require('./models/ProductVariation');
+const StockMovement = require('./models/StockMovement');
 
 // Charger les variables d'environnement
 dotenv.config();
 
-// Configuration CORS pour la production
+// Configuration CORS
 const allowedOrigins = [
-    'http://localhost:8080',
+    'http://localhost:8080', // AJOUTÉ POUR LE DÉBOGAGE LOCAL DU FRONTEND
     process.env.FRONTEND_URL,
 ];
 
@@ -104,6 +104,13 @@ app.use((req, res, next) => {
 
 // Gestionnaire d'erreurs global (DOIT ÊTRE LE DERNIER middleware app.use())
 app.use((err, req, res, next) => {
+    // AJOUTÉ POUR LE DÉBOGAGE : Log l'erreur complète même en production
+    console.error('Global Error Handler caught:', err);
+    if (err.stack) {
+        console.error('Error Stack:', err.stack);
+    }
+    // Fin de l'ajout pour le débogage
+
     if (process.env.NODE_ENV === 'development') {
         console.error(err);
     }
@@ -181,7 +188,7 @@ app.use((err, req, res, next) => {
     });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 4000; // Changé à 4000 pour correspondre à votre .env
 
 app.listen(PORT, () => {
     console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
