@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
-const { upload } = require('../utils/cloudinary'); // AJOUTÉ pour l'upload de photo de profil
+const { upload } = require('../utils/cloudinary');
 
 // Toutes les routes ici nécessitent que l'utilisateur soit connecté (acheteur, vendeur, admin)
 router.use(protect);
@@ -12,7 +12,7 @@ router.use(protect);
 router.route('/me')
     .get(userController.getMe)
     .put(userController.updateUser)
-    .delete(userController.deleteUser); // L'utilisateur peut supprimer son propre compte
+    .delete(userController.deleteUser);
 
 // Route pour changer le mot de passe
 router.put('/me/changepassword', userController.changePassword);
@@ -34,12 +34,18 @@ router.delete('/me/history/offers', authorize('buyer'), userController.archiveOf
 // Routes pour les recommandations
 router.get('/me/recommendations', authorize('buyer'), userController.getRecommendedProducts);
 
-// Routes pour les messages envoyés par l'admin à l'utilisateur
-router.get('/me/messages', userController.getAdminMessages);
+// AJOUTÉ : Routes pour les notifications de l'utilisateur
+router.route('/me/notifications')
+    .get(userController.getAdminMessages) // Obtenir les notifications reçues
+    .delete(userController.clearAllNotifications); // Effacer toutes les notifications
+router.put('/me/notifications/:id/read', userController.markNotificationAsRead); // Marquer comme lue
 
 // AJOUTÉ : Routes pour la photo de profil
 router.put('/me/profile-picture', upload.single('profilePicture'), userController.uploadProfilePicture);
 router.delete('/me/profile-picture', userController.deleteProfilePicture);
+
+// AJOUTÉ : Routes pour les préférences WhatsApp
+router.put('/me/whatsapp-preferences', userController.updateWhatsappPreferences);
 
 
 // Routes accessibles uniquement par l'administrateur (inchangées)

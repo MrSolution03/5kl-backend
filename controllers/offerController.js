@@ -1,16 +1,16 @@
 // 5kl-backend/controllers/offerController.js
 const Offer = require('../models/Offer');
-const Product = require('../models/Product'); // Pour le produit parent
-const ProductVariation = require('../models/ProductVariation'); // AJOUTÉ
+const Product = require('../models/Product');
+const ProductVariation = require('../models/ProductVariation');
 const User = require('../models/User');
 const Cart = require('../models/Cart');
-const AppError = require('../utils/appError');
+const Notification = require('../models/Notification'); // AJOUTÉ
+const { sendNotification, sendNotificationToAdmin } = require('../utils/notificationService'); // AJOUTÉ
 const Joi = require('joi');
 
 // --- Schemas de Validation Joi ---
-
 const createOfferSchema = Joi.object({
-    productVariationId: Joi.string().hex().length(24).required(), // MODIFIÉ
+    productVariationId: Joi.string().hex().length(24).required(),
     proposedPrice: Joi.number().min(0.01).required(),
     initialMessage: Joi.string().min(1).optional().allow('')
 }).options({ stripUnknown: true });
@@ -19,6 +19,7 @@ const addMessageToOfferSchema = Joi.object({
     message: Joi.string().min(1).required(),
     price: Joi.number().min(0.01).optional().allow(null)
 }).options({ stripUnknown: true });
+
 
 // --- Fonctions des Contrôleurs ---
 
@@ -46,14 +47,17 @@ exports.createOffer = async (req, res, next) => {
              return next(new AppError('offer.productOutOfStock', 400));
         }
 
-        // Vérifier si une offre pour cette variation est déjà en cours ou acceptée par cet acheteur
-        const existingOffer = await Offer.findOne({
+        // Vérifier si une offre pour cette variation par cet acheteur est déjà "pending"
+        // Si oui, nous voulons continuer la conversation existante si c'est la même intention,
+        // ou créer une nouvelle si l'ancienne est "close" (accepted/rejected/retracted/expired)
+        // La règle est : un client = une offre "active" (pending) par variation de produit.
+        const existingActiveOffer = await Offer.findOne({
             buyer: req.user.id,
-            productVariation: productVariationId, // MODIFIÉ
-            status: { $in: ['pending', 'accepted'] }
+            productVariation: productVariationId,
+            status: 'pending' // Seulement si l'offre est toujours en attente
         });
 
-        if (existingOffer) {
+        if (existingActiveOffer) {
             return next(new AppError('offer.offerAlreadyMade', 400, [variation.product.name + ' (' + variation.attributes.map(a => a.value).join(', ') + ')']));
         }
 
@@ -66,8 +70,8 @@ exports.createOffer = async (req, res, next) => {
         }];
 
         const offer = await Offer.create({
-            product: variation.product._id, // Référence au produit parent
-            productVariation: productVariationId, // MODIFIÉ
+            product: variation.product._id,
+            productVariation: productVariationId,
             buyer: req.user.id,
             initialProposedPrice: proposedPrice,
             messages,
@@ -75,7 +79,29 @@ exports.createOffer = async (req, res, next) => {
             status: 'pending'
         });
 
-        // TODO: Notifier l'administrateur de la nouvelle offre
+        // AJOUTÉ : Notifications
+        await sendNotificationToAdmin({
+            senderId: req.user.id,
+            type: 'new_offer_request',
+            titleKey: 'common.notification.newOfferTitle',
+            messageKey: 'common.notification.newOfferWhatsApp',
+            messageArgs: [offer._id.toString().slice(-8), variation.product.name + ' (' + variation.attributes.map(a => a.value).join(', ') + ')', req.user.firstName || req.user.username, offer.initialProposedPrice, offer.currency || 'FC'],
+            relatedEntity: { id: offer._id, relatedEntityType: 'Offer' },
+            sendWhatsapp: true
+        });
+        await sendNotification({
+            recipientId: req.user.id,
+            senderId: null, // Système
+            type: 'offer_update',
+            titleKey: 'common.notification.offerCreatedTitle',
+            messageKey: 'offer.created',
+            messageArgs: [offer._id.toString().slice(-8), variation.product.name + ' (' + variation.attributes.map(a => a.value).join(', ') + ')'],
+            relatedEntity: { id: offer._id, relatedEntityType: 'Offer' },
+            sendWhatsapp: false // Pas de WhatsApp par défaut pour l'acheteur sur la création d'offre
+        });
+        offer.notifications.push(...(await Notification.find({ relatedEntity: { id: offer._id, relatedEntityType: 'Offer' } })).map(n => n._id));
+        await offer.save({ validateBeforeSave: false });
+
 
         res.status(201).json({
             success: true,
@@ -157,7 +183,7 @@ exports.addMessageToOffer = async (req, res, next) => {
             return next(error);
         }
 
-        const offer = await Offer.findById(req.params.id);
+        const offer = await Offer.findById(req.params.id).populate('productVariation', 'product');
         if (!offer) {
             return next(new AppError('offer.notFound', 404));
         }
@@ -182,7 +208,21 @@ exports.addMessageToOffer = async (req, res, next) => {
         offer.lastActivity = Date.now();
         await offer.save();
 
-        // TODO: Notifier l'administrateur d'un nouveau message de l'acheteur
+        // AJOUTÉ : Notifications
+        await sendNotificationToAdmin({
+            senderId: req.user.id,
+            type: 'offer_update',
+            titleKey: 'common.notification.offerMessageTitle',
+            messageKey: 'common.notification.offerMessageTitle',
+            messageArgs: [offer._id.toString().slice(-8), offer.productVariation.product.name + ' (' + offer.productVariation.attributes.map(a => a.value).join(', ') + ')'],
+            relatedEntity: { id: offer._id, relatedEntityType: 'Offer' },
+            sendWhatsapp: false // L'admin peut choisir de ne pas recevoir tous les messages de discussion par WhatsApp
+        });
+        // Pas de notification WhatsApp à l'acheteur pour chaque message de discussion
+
+        offer.notifications.push(...(await Notification.find({ relatedEntity: { id: offer._id, relatedEntityType: 'Offer' } })).map(n => n._id));
+        await offer.save({ validateBeforeSave: false });
+
 
         res.status(200).json({
             success: true,
@@ -201,7 +241,7 @@ exports.addMessageToOffer = async (req, res, next) => {
  */
 exports.retractOffer = async (req, res, next) => {
     try {
-        const offer = await Offer.findById(req.params.id);
+        const offer = await Offer.findById(req.params.id).populate('productVariation', 'product');
         if (!offer) {
             return next(new AppError('offer.notFound', 404));
         }
@@ -223,7 +263,19 @@ exports.retractOffer = async (req, res, next) => {
         offer.lastActivity = Date.now();
         await offer.save();
 
-        // TODO: Notifier l'administrateur que l'offre a été retirée
+        // AJOUTÉ : Notifications
+        await sendNotificationToAdmin({
+            senderId: req.user.id,
+            type: 'offer_update',
+            titleKey: 'common.notification.offerRejectedTitle', // Ou une clé "Offer Retracted"
+            messageKey: 'offer.retracted',
+            messageArgs: [offer._id.toString().slice(-8), offer.productVariation.product.name + ' (' + offer.productVariation.attributes.map(a => a.value).join(', ') + ')'],
+            relatedEntity: { id: offer._id, relatedEntityType: 'Offer' },
+            sendWhatsapp: true
+        });
+        offer.notifications.push(...(await Notification.find({ relatedEntity: { id: offer._id, relatedEntityType: 'Offer' } })).map(n => n._id));
+        await offer.save({ validateBeforeSave: false });
+
 
         res.status(200).json({
             success: true,
@@ -242,7 +294,7 @@ exports.retractOffer = async (req, res, next) => {
  */
 exports.acceptOfferToCart = async (req, res, next) => {
     try {
-        const offer = await Offer.findById(req.params.id).populate('productVariation'); // MODIFIÉ
+        const offer = await Offer.findById(req.params.id).populate('productVariation');
 
         if (!offer) {
             return next(new AppError('offer.notFound', 404));
@@ -256,8 +308,8 @@ exports.acceptOfferToCart = async (req, res, next) => {
             return next(new AppError('offer.acceptLinkExpired', 400));
         }
 
-        const variation = offer.productVariation; // La variation
-        if (!variation || !variation.isAvailable || variation.stock < 1) { // Vérifier le stock de la variation
+        const variation = offer.productVariation;
+        if (!variation || !variation.isAvailable || variation.stock < 1) {
             return next(new AppError('offer.productOutOfStock', 400));
         }
 
@@ -267,14 +319,14 @@ exports.acceptOfferToCart = async (req, res, next) => {
             cart = await Cart.create({ user: req.user.id });
         }
 
-        const itemIndex = cart.items.findIndex(item => item.productVariation.toString() === variation._id.toString()); // MODIFIÉ
+        const itemIndex = cart.items.findIndex(item => item.productVariation.toString() === variation._id.toString());
 
         if (itemIndex > -1) {
             cart.items[itemIndex].quantity += 1;
             cart.items[itemIndex].priceAtAddToCart = offer.acceptedPrice;
         } else {
             cart.items.push({
-                productVariation: variation._id, // MODIFIÉ
+                productVariation: variation._id,
                 quantity: 1,
                 priceAtAddToCart: offer.acceptedPrice
             });

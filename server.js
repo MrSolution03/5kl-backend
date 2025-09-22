@@ -12,6 +12,7 @@ const CurrencyRate = require('./models/CurrencyRate');
 const AdminMessage = require('./models/AdminMessage');
 const ProductVariation = require('./models/ProductVariation');
 const StockMovement = require('./models/StockMovement');
+const cookieParser = require('cookie-parser'); // <-- N'oubliez pas l'import ici aussi !
 
 dotenv.config();
 
@@ -67,6 +68,7 @@ app.use(async (req, res, next) => {
 // Parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser()); // <--- AJOUTEZ CETTE LIGNE ICI ! Avant CORS et routes.
 
 // Security
 app.use(mongoSanitize());

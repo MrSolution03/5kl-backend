@@ -1,19 +1,24 @@
 // 5kl-backend/controllers/authController.js
 const User = require('../models/User');
-const { signToken, createSendToken } = require('../utils/authUtils'); // MODIFIÉ : Importe signToken et createSendToken
+const { createSendToken } = require('../utils/authUtils'); // MODIFIÉ : Importe createSendToken
 const Joi = require('joi');
 const AppError = require('../utils/appError');
 // const bcrypt = require('bcryptjs'); // Non directement utilisé ici car user.correctPassword est une méthode du modèle
 const sendEmail = require('../utils/sendEmail');
 const crypto = require('crypto');
+const { DEFAULT_LOCALE, SUPPORTED_LOCALES } = require('../utils/i18n'); // AJOUTÉ : Pour les locales supportées
 
-// --- Schemas de Validation Joi (inchangés) ---
+// --- Schemas de Validation Joi ---
 const registerSchema = Joi.object({
     username: Joi.string().min(3).max(30).optional(),
     email: Joi.string().email().required(),
     password: Joi.string().min(6).required(),
     firstName: Joi.string().optional(),
     lastName: Joi.string().optional(),
+    phone: Joi.string().optional(),
+    whatsappNumber: Joi.string().pattern(/^\+?\d{8,15}$/).optional().allow(null, ''), // AJOUTÉ
+    whatsappNotificationsEnabled: Joi.boolean().optional().default(false),           // AJOUTÉ
+    locale: Joi.string().valid(...SUPPORTED_LOCALES).optional().default(DEFAULT_LOCALE), // AJOUTÉ
     roles: Joi.array().items(Joi.string().valid('buyer', 'seller')).default(['buyer']),
 });
 
@@ -48,7 +53,7 @@ exports.register = async (req, res, next) => {
             return next(error);
         }
 
-        const { username, email, password, firstName, lastName, roles } = value;
+        const { username, email, password, firstName, lastName, phone, whatsappNumber, whatsappNotificationsEnabled, locale, roles } = value; // AJOUTÉ : nouveaux champs
 
         let user = await User.findOne({ email });
         if (user) {
@@ -68,6 +73,10 @@ exports.register = async (req, res, next) => {
             password,
             firstName,
             lastName,
+            phone,
+            whatsappNumber,               // AJOUTÉ
+            whatsappNotificationsEnabled, // AJOUTÉ
+            locale,                       // AJOUTÉ
             roles,
             isEmailVerified: false
         });
@@ -86,11 +95,9 @@ exports.register = async (req, res, next) => {
  * @access  Public
  */
 exports.login = async (req, res, next) => {
-    // console.log('Login attempt for email:', req.body.email); // Log 1 pour débogage
     try {
         const { error, value } = loginSchema.validate(req.body);
         if (error) {
-            // console.log('Login validation error:', error.details[0].message); // Log 2
             error.statusCode = 400;
             error.isJoi = true;
             return next(error);
@@ -100,22 +107,17 @@ exports.login = async (req, res, next) => {
 
         const user = await User.findOne({ email }).select('+password');
 
-        // MODIFIÉ : Utilise la nouvelle méthode correctPassword du modèle User
         if (!user || !(await user.correctPassword(password, user.password))) {
-            // console.log('Password mismatch or user not found for email:', email); // Log 3 & 4
             return next(new AppError('auth.invalidCredentials', 401));
         }
 
         // Vérifier si l'utilisateur est banni
         if (user.isBanned) {
-            // console.log('Banned user tried to log in:', email); // Log 5
             return next(new AppError('auth.userBanned', 403, [user.bannedReason || req.t('auth.defaultBanReason')]));
         }
 
-        // console.log('Login successful for user:', email); // Log 6
         createSendToken(user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
     } catch (error) {
-        // console.error('Unhandled error during login:', error); // Log 7
         next(error);
     }
 };
@@ -253,7 +255,7 @@ exports.resetPassword = async (req, res, next) => {
 /**
  * @desc    Déconnecter un utilisateur
  * @route   GET /api/auth/logout
- * @access  Private (ou Public, efface juste le cookie)
+ * @access  Public (efface juste le cookie)
  */
 exports.logout = (req, res, next) => {
     res.cookie('jwt', 'loggedout', {
@@ -263,5 +265,5 @@ exports.logout = (req, res, next) => {
         sameSite: 'Lax',
     });
 
-    res.status(200).json({ success: true, message: req.t('auth.logoutSuccess') }); // Nouvelle clé
+    res.status(200).json({ success: true, message: req.t('auth.logoutSuccess') });
 };

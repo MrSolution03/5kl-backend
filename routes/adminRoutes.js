@@ -2,8 +2,11 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
-const productController = require('../controllers/productController'); // Pour la création de catégories/marques publiques par l'admin
+const productController = require('../controllers/productController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
+const AppError = require('../utils/appError'); // AJOUTÉ : Importe AppError
+// Note: 'upload' n'est pas utilisé directement dans adminRoutes, mais est importé par les controllers si nécessaire.
+
 
 router.use(protect, authorize('admin')); // Toutes les routes ici sont protégées et nécessitent le rôle 'admin'
 
@@ -68,33 +71,33 @@ router.route('/offers/:id/message')
     .post(adminController.addAdminMessageToOffer);
 
 
-// Gestion des catégories (L'admin utilise aussi les fonctions du productController pour la création)
+// Gestion des catégories
 router.route('/categories')
-    .post(productController.createCategory); // Admin crée une catégorie
+    .post(productController.createCategory);
 router.route('/categories/:id')
-    .put(adminController.updateCategory) // Admin met à jour une catégorie
-    .delete(adminController.deleteCategory); // Admin supprime une catégorie
+    .put(adminController.updateCategory)
+    .delete(adminController.deleteCategory);
 
-// Gestion des marques (L'admin utilise aussi les fonctions du productController pour la création)
+// Gestion des marques
 router.route('/brands')
-    .post(productController.createBrand); // Admin crée une marque
+    .post(productController.createBrand);
 router.route('/brands/:id')
-    .put(adminController.updateBrand) // Admin met à jour une marque
-    .delete(adminController.deleteBrand); // Admin supprime une marque
+    .put(adminController.updateBrand)
+    .delete(adminController.deleteBrand);
 
 // Gestion des Taux de Change
 router.route('/currency-rate')
     .get(adminController.getCurrencyRate)
     .put(adminController.updateCurrencyRate);
 
-// Gestion des Messages Admin
+// Gestion des Messages Admin (envoi et consultation des messages envoyés par l'admin)
 router.route('/messages')
     .post(adminController.sendMessage)
     .get(adminController.getSentMessages);
 
-// AJOUTÉ : Gestion des Mouvements de Stock (accessible par l'admin pour n'importe quelle variation)
+// Gestion des Mouvements de Stock (accessible par l'admin pour n'importe quelle variation)
 router.route('/product-variations/:id/stock-movements')
-    .post(adminController.recordStockMovement) // Enregistrer un mouvement de stock
-    .get(adminController.getStockMovements); // Obtenir les mouvements de stock
+    .post(adminController.recordStockMovement)
+    .get(adminController.getStockMovements);
 
 module.exports = router;

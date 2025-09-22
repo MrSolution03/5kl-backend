@@ -2,22 +2,21 @@
 const User = require('../models/User');
 const Shop = require('../models/Shop');
 const Product = require('../models/Product');
-const ProductVariation = require('../models/ProductVariation'); // AJOUTÉ
-const StockMovement = require('../models/StockMovement');     // AJOUTÉ
+const ProductVariation = require('../models/ProductVariation');
+const StockMovement = require('../models/StockMovement');
 const Order = require('../models/Order');
 const Offer = require('../models/Offer');
 const Category = require('../models/Category');
 const Brand = require('../models/Brand');
 const CurrencyRate = require('../models/CurrencyRate');
-const AdminMessage = require('../models/AdminMessage');
-const AppError = require('../utils/appError');
+const AdminMessage = require('../models/AdminMessage'); // eslint-disable-next-line no-unused-vars -- Utilisé via NotificationService
+const Notification = require('../models/Notification'); // eslint-disable-next-line no-unused-vars -- Utilisé via NotificationService
+const { sendNotification, sendNotificationToAdmin } = require('../utils/notificationService');
 const Joi = require('joi');
-const { cloudinary } = require('../utils/cloudinary');
-const { SUPPORTED_CURRENCIES } = require('../utils/i18n');
+const { upload, cloudinary } = require('../utils/cloudinary'); // eslint-disable-next-line no-unused-vars -- 'upload' n'est pas utilisé directement ici
+const { SUPPORTED_CURRENCIES } = require('../utils/i18n'); // eslint-disable-next-line no-unused-vars -- Utilisé pour la validation de schema ou la conversion, mais pas directement
 
-
-// --- Schemas de Validation Joi ---
-
+// --- Schemas de Validation Joi (inchangés) ---
 const updateUserRoleSchema = Joi.object({
     roles: Joi.array().items(Joi.string().valid('buyer', 'seller', 'admin')).min(1).required()
 });
@@ -76,7 +75,6 @@ const sendMessageSchema = Joi.object({
     message: Joi.string().min(10).required()
 });
 
-// AJOUTÉ : Schéma pour enregistrer un mouvement de stock par l'admin
 const stockMovementSchema = Joi.object({
     type: Joi.string().valid('in', 'out', 'adjustment').required(),
     quantity: Joi.number().integer().min(1).required(),
@@ -86,8 +84,6 @@ const stockMovementSchema = Joi.object({
 
 
 // --- Fonctions des Contrôleurs ---
-
-// --- Gestion des utilisateurs (inchangé) ---
 
 /**
  * @desc    Obtenir tous les utilisateurs
@@ -231,6 +227,18 @@ exports.banUser = async (req, res, next) => {
         user.bannedBy = req.user.id;
         await user.save({ validateBeforeSave: false });
 
+        // AJOUTÉ : Notification à l'utilisateur banni
+        await sendNotification({
+            recipientId: user._id,
+            senderId: req.user.id,
+            type: 'system',
+            titleKey: 'auth.userBanned',
+            messageKey: 'auth.userBanned',
+            messageArgs: [user.bannedReason],
+            relatedEntity: { id: user._id, relatedEntityType: 'User' },
+            sendWhatsapp: true
+        });
+
         res.status(200).json({
             success: true,
             message: req.t('admin.userBanned'),
@@ -261,6 +269,18 @@ exports.unbanUser = async (req, res, next) => {
         user.bannedReason = undefined;
         user.bannedBy = undefined;
         await user.save({ validateBeforeSave: false });
+
+        // AJOUTÉ : Notification à l'utilisateur débanni
+        await sendNotification({
+            recipientId: user._id,
+            senderId: req.user.id,
+            type: 'system',
+            titleKey: 'admin.userUnbanned',
+            messageKey: 'admin.userUnbanned',
+            messageArgs: [],
+            relatedEntity: { id: user._id, relatedEntityType: 'User' },
+            sendWhatsapp: true
+        });
 
         res.status(200).json({
             success: true,
@@ -459,8 +479,19 @@ exports.acceptOrder = async (req, res, next) => {
         order.deliveryTracking.push({ status: 'accepted' });
         await order.save();
 
-        // TODO: Notifier l'utilisateur et le(s) vendeur(s)
-        // Les stocks sont déjà décrémentés à la création de la commande
+        // AJOUTÉ : Notifications
+        await sendNotification({
+            recipientId: order.user,
+            senderId: req.user.id,
+            type: 'order_status',
+            titleKey: 'common.notification.orderAcceptedTitle',
+            messageKey: 'common.notification.orderAcceptedWhatsApp',
+            messageArgs: [order._id.toString().slice(-8), order.totalAmount, order.currency],
+            relatedEntity: { id: order._id, relatedEntityType: 'Order' },
+            sendWhatsapp: true
+        });
+        order.notifications.push(...(await Notification.find({ relatedEntity: { id: order._id, relatedEntityType: 'Order' } })).map(n => n._id));
+        await order.save({ validateBeforeSave: false });
 
         res.status(200).json({
             success: true,
@@ -500,7 +531,6 @@ exports.rejectOrder = async (req, res, next) => {
         order.deliveryTracking.push({ status: 'rejected' });
         await order.save();
 
-        // Restaurer les stocks des variations et enregistrer les mouvements
         for (const item of order.items) {
             await ProductVariation.findByIdAndUpdate(item.productVariation, { $inc: { stock: item.quantity } });
             await StockMovement.create({
@@ -516,8 +546,20 @@ exports.rejectOrder = async (req, res, next) => {
             await Product.findById(item.product).then(p => p.updateAggregatedData());
         }
 
-        // TODO: Notifier l'utilisateur avec la raison du rejet
-        // TODO: Notifier les vendeurs concernés
+        // AJOUTÉ : Notifications
+        await sendNotification({
+            recipientId: order.user,
+            senderId: req.user.id,
+            type: 'order_status',
+            titleKey: 'common.notification.orderRejectedTitle',
+            messageKey: 'common.notification.orderRejectedWhatsApp',
+            messageArgs: [order._id.toString().slice(-8), order.adminNotes],
+            relatedEntity: { id: order._id, relatedEntityType: 'Order' },
+            sendWhatsapp: true
+        });
+        order.notifications.push(...(await Notification.find({ relatedEntity: { id: order._id, relatedEntityType: 'Order' } })).map(n => n._id));
+        await order.save({ validateBeforeSave: false });
+
 
         res.status(200).json({
             success: true,
@@ -571,7 +613,20 @@ exports.updateOrderStatus = async (req, res, next) => {
         order.deliveryTracking.push({ status: value.status, location: value.adminNotes });
         await order.save();
 
-        // TODO: Notifier l'utilisateur des changements de statut
+        // AJOUTÉ : Notifications
+        await sendNotification({
+            recipientId: order.user,
+            senderId: req.user.id,
+            type: 'order_status',
+            titleKey: 'common.notification.orderStatusUpdateTitle',
+            messageKey: 'common.notification.orderStatusUpdateWhatsApp',
+            messageArgs: [order._id.toString().slice(-8), req.t(`common.status.${order.status.replace(/_/g, '')}`)],
+            relatedEntity: { id: order._id, relatedEntityType: 'Order' },
+            sendWhatsapp: true
+        });
+        order.notifications.push(...(await Notification.find({ relatedEntity: { id: order._id, relatedEntityType: 'Order' } })).map(n => n._id));
+        await order.save({ validateBeforeSave: false });
+
 
         res.status(200).json({
             success: true,
@@ -612,6 +667,21 @@ exports.markOrderAsPaid = async (req, res, next) => {
         order.isPaid = value.isPaid;
         await order.save();
 
+        // AJOUTÉ : Notifications
+        await sendNotification({
+            recipientId: order.user,
+            senderId: req.user.id,
+            type: 'order_status',
+            titleKey: value.isPaid ? 'admin.orderMarkedAsPaid' : 'admin.orderMarkedAsUnpaid',
+            messageKey: value.isPaid ? 'admin.orderMarkedAsPaid' : 'admin.orderMarkedAsUnpaid',
+            messageArgs: [],
+            relatedEntity: { id: order._id, relatedEntityType: 'Order' },
+            sendWhatsapp: true
+        });
+        order.notifications.push(...(await Notification.find({ relatedEntity: { id: order._id, relatedEntityType: 'Order' } })).map(n => n._id));
+        await order.save({ validateBeforeSave: false });
+
+
         res.status(200).json({
             success: true,
             message: value.isPaid ? req.t('admin.orderMarkedAsPaid') : req.t('admin.orderMarkedAsUnpaid'),
@@ -623,7 +693,7 @@ exports.markOrderAsPaid = async (req, res, next) => {
 };
 
 
-// --- Gestion des offres de prix (inchangé) ---
+// --- Gestion des offres de prix ---
 
 /**
  * @desc    Obtenir toutes les offres (y compris celles en attente)
@@ -680,7 +750,7 @@ exports.getPendingOffers = async (req, res, next) => {
             .skip(skip)
             .limit(limit);
 
-        const totalPendingOffers = await Order.countDocuments({ status: 'pending' });
+        const totalPendingOffers = await Offer.countDocuments({ status: 'pending' });
 
         res.status(200).json({
             success: true,
@@ -733,7 +803,20 @@ exports.acceptOffer = async (req, res, next) => {
         });
         await offer.save();
 
-        // TODO: Notifier l'acheteur que son offre a été acceptée avec le prix final
+        // AJOUTÉ : Notifications
+        await sendNotification({
+            recipientId: offer.buyer,
+            senderId: req.user.id,
+            type: 'offer_update',
+            titleKey: 'common.notification.offerAcceptedTitle',
+            messageKey: 'common.notification.offerAcceptedTitle',
+            messageArgs: [offer._id.toString().slice(-8), offer.productVariation.product.name + ' (' + offer.productVariation.attributes.map(a => a.value).join(', ') + ')'],
+            relatedEntity: { id: offer._id, relatedEntityType: 'Offer' },
+            sendWhatsapp: true
+        });
+        offer.notifications.push(...(await Notification.find({ relatedEntity: { id: offer._id, relatedEntityType: 'Offer' } })).map(n => n._id));
+        await offer.save({ validateBeforeSave: false });
+
 
         res.status(200).json({
             success: true,
@@ -759,7 +842,7 @@ exports.rejectOffer = async (req, res, next) => {
             return next(error);
         }
 
-        const offer = await Offer.findById(req.params.id);
+        const offer = await Offer.findById(req.params.id).populate('productVariation', 'product');
         if (!offer) {
             return next(new AppError('admin.offerNotFound', 404));
         }
@@ -777,7 +860,20 @@ exports.rejectOffer = async (req, res, next) => {
         });
         await offer.save();
 
-        // TODO: Notifier l'acheteur que son offre a été rejetée avec la raison.
+        // AJOUTÉ : Notifications
+        await sendNotification({
+            recipientId: offer.buyer,
+            senderId: req.user.id,
+            type: 'offer_update',
+            titleKey: 'common.notification.offerRejectedTitle',
+            messageKey: 'common.notification.offerRejectedTitle',
+            messageArgs: [offer._id.toString().slice(-8), offer.productVariation.product.name + ' (' + offer.productVariation.attributes.map(a => a.value).join(', ') + ')'],
+            relatedEntity: { id: offer._id, relatedEntityType: 'Offer' },
+            sendWhatsapp: true
+        });
+        offer.notifications.push(...(await Notification.find({ relatedEntity: { id: offer._id, relatedEntityType: 'Offer' } })).map(n => n._id));
+        await offer.save({ validateBeforeSave: false });
+
 
         res.status(200).json({
             success: true,
@@ -803,7 +899,7 @@ exports.addAdminMessageToOffer = async (req, res, next) => {
             return next(error);
         }
 
-        const offer = await Offer.findById(req.params.id);
+        const offer = await Offer.findById(req.params.id).populate('productVariation', 'product');
         if (!offer) {
             return next(new AppError('admin.offerNotFound', 404));
         }
@@ -824,7 +920,20 @@ exports.addAdminMessageToOffer = async (req, res, next) => {
         offer.lastActivity = Date.now();
         await offer.save();
 
-        // TODO: Notifier l'acheteur du nouveau message/contre-offre
+        // AJOUTÉ : Notifications
+        await sendNotification({
+            recipientId: offer.buyer,
+            senderId: req.user.id,
+            type: 'offer_update',
+            titleKey: 'common.notification.offerMessageTitle',
+            messageKey: 'common.notification.offerMessageTitle',
+            messageArgs: [offer._id.toString().slice(-8), offer.productVariation.product.name + ' (' + offer.productVariation.attributes.map(a => a.value).join(', ') + ')'],
+            relatedEntity: { id: offer._id, relatedEntityType: 'Offer' },
+            sendWhatsapp: false // Pas de WhatsApp pour chaque message de discussion par l'admin
+        });
+        offer.notifications.push(...(await Notification.find({ relatedEntity: { id: offer._id, relatedEntityType: 'Offer' } })).map(n => n._id));
+        await offer.save({ validateBeforeSave: false });
+
 
         res.status(200).json({
             success: true,
@@ -1045,7 +1154,7 @@ exports.updateCurrencyRate = async (req, res, next) => {
     }
 };
 
-// --- Gestion des Messages Admin (inchangé) ---
+// --- Gestion des Messages Admin ---
 
 /**
  * @desc    Envoyer un message à un ou plusieurs destinataires
@@ -1063,33 +1172,45 @@ exports.sendMessage = async (req, res, next) => {
 
         const { recipientType, recipientId, subject, message } = value;
 
-        let recipientUser = null;
-        if (recipientType === 'user') {
+        let recipients = [];
+        if (recipientType === 'all') {
+            recipients = await User.find().select('_id locale whatsappNumber whatsappNotificationsEnabled');
+        } else if (recipientType === 'buyer') {
+            recipients = await User.find({ roles: 'buyer' }).select('_id locale whatsappNumber whatsappNotificationsEnabled');
+        } else if (recipientType === 'seller') {
+            recipients = await User.find({ roles: 'seller' }).select('_id locale whatsappNumber whatsappNotificationsEnabled');
+        } else if (recipientType === 'user') {
             if (!recipientId) {
                 return next(new AppError('admin.specificUserRequired', 400));
             }
-            recipientUser = await User.findById(recipientId);
-            if (!recipientUser) {
+            const specificUser = await User.findById(recipientId).select('_id locale whatsappNumber whatsappNotificationsEnabled');
+            if (!specificUser) {
                 return next(new AppError('admin.userNotFound', 404));
             }
-        } else if (recipientId) {
+            recipients.push(specificUser);
+        } else {
             return next(new AppError('admin.invalidRecipientType', 400));
         }
 
-        const adminMessage = await AdminMessage.create({
-            sender: req.user.id,
-            recipientType,
-            recipientUser: recipientUser ? recipientUser._id : null,
-            subject,
-            message
-        });
+        const recipientIds = recipients.map(r => r._id);
 
-        // TODO: Implémenter des notifications réelles (email, push, WebSocket) ici pour les destinataires
+        // Envoyer des notifications à tous les destinataires
+        await sendNotification({
+            recipientId: recipientIds, // Array of recipient IDs
+            senderId: req.user.id,
+            type: 'admin_message',
+            titleKey: 'common.notification.adminMessageTitle',
+            messageKey: 'common.notification.adminMessageTitle',
+            messageArgs: [subject],
+            sendWhatsapp: true // L'admin peut envoyer par WhatsApp pour les messages de masse
+        });
 
         res.status(201).json({
             success: true,
             message: req.t('admin.messageSentSuccess'),
-            data: adminMessage
+            // Note: Ne pas retourner l'objet AdminMessage brut car il est maintenant un type de Notification
+            // Vous pouvez retourner un message de confirmation ou la liste des notifications créées.
+            notificationsCount: recipientIds.length
         });
 
     } catch (error) {
@@ -1108,28 +1229,29 @@ exports.getSentMessages = async (req, res, next) => {
         const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
 
-        const messages = await AdminMessage.find({ sender: req.user.id })
-            .populate('recipientUser', 'username email')
+        // L'admin veut voir les notifications qu'il a déclenchées
+        const notifications = await Notification.find({ sender: req.user.id, type: 'admin_message' }) // Filtrer par type pour ne pas mélanger
+            .populate('recipient', 'username email')
             .sort('-sentAt')
             .skip(skip)
             .limit(limit);
 
-        const totalMessages = await AdminMessage.countDocuments({ sender: req.user.id });
+        const totalNotifications = await Notification.countDocuments({ sender: req.user.id, type: 'admin_message' });
 
         res.status(200).json({
             success: true,
-            count: messages.length,
-            total: totalMessages,
+            count: notifications.length,
+            total: totalNotifications,
             page,
-            pages: Math.ceil(totalMessages / limit),
-            data: messages
+            pages: Math.ceil(totalNotifications / limit),
+            data: notifications
         });
     } catch (error) {
         next(error);
     }
 };
 
-// --- AJOUTÉ : Gestion des Mouvements de Stock par l'Admin ---
+// --- Gestion des Mouvements de Stock par l'Admin (inchangé) ---
 
 /**
  * @desc    Enregistrer un mouvement de stock (pour n'importe quelle variation)
@@ -1137,9 +1259,6 @@ exports.getSentMessages = async (req, res, next) => {
  * @access  Private (Admin)
  */
 exports.recordStockMovement = async (req, res, next) => {
-    // L'admin peut enregistrer des mouvements pour n'importe quelle variation.
-    // La vérification d'autorisation dans productController.recordStockMovement gère la propriété.
-    // L'admin étant admin, il passera la vérification.
     return require('./productController').recordStockMovement(req, res, next);
 };
 

@@ -4,22 +4,26 @@ const Order = require('../models/Order');
 const Offer = require('../models/Offer');
 const Product = require('../models/Product');
 const AdminMessage = require('../models/AdminMessage');
-const ProductVariation = require('../models/ProductVariation'); // Pour les recommandations
+const ProductVariation = require('../models/ProductVariation');
+const Notification = require('../models/Notification');
+const { sendNotification } = require('../utils/notificationService');
 const Joi = require('joi');
 const AppError = require('../utils/appError');
-// const bcrypt = require('bcryptjs'); // Non directement utilisé ici car user.correctPassword est une méthode du modèle
-const { upload, cloudinary } = require('../utils/cloudinary'); // AJOUTÉ : pour l'upload de photo de profil
+const { upload, cloudinary } = require('../utils/cloudinary'); // <-- TRÈS IMPORTANT : S'assurer que 'upload' et 'cloudinary' sont bien importés
+const { SUPPORTED_LOCALES } = require('../utils/i18n');
 
 
-// --- Validation schema for updating user profile (inchangé) ---
+// --- Validation schemas (inchangés) ---
 const updateUserSchema = Joi.object({
     username: Joi.string().min(3).max(30).optional(),
     firstName: Joi.string().optional(),
     lastName: Joi.string().optional(),
     phone: Joi.string().optional(),
+    whatsappNumber: Joi.string().pattern(/^\+?\d{8,15}$/).optional().allow(null, ''),
+    whatsappNotificationsEnabled: Joi.boolean().optional(),
+    locale: Joi.string().valid(...SUPPORTED_LOCALES).optional(),
 });
 
-// --- Validation schema for adding/updating addresses (inchangé) ---
 const addressSchema = Joi.object({
     street: Joi.string().required(),
     city: Joi.string().required(),
@@ -29,7 +33,6 @@ const addressSchema = Joi.object({
     isDefault: Joi.boolean().optional().default(false)
 });
 
-// --- Validation schema for changing password (inchangé) ---
 const changePasswordSchema = Joi.object({
     currentPassword: Joi.string().required(),
     newPassword: Joi.string().min(6).required(),
@@ -46,8 +49,6 @@ const changePasswordSchema = Joi.object({
  */
 exports.getMe = async (req, res, next) => {
     try {
-        // L'utilisateur est déjà attaché à req.user par le middleware 'protect'
-        // Nous nous assurons que le password est retiré par le modèle select: false
         res.status(200).json({
             success: true,
             data: req.user
@@ -86,6 +87,9 @@ exports.updateUser = async (req, res, next) => {
         if (value.firstName) user.firstName = value.firstName;
         if (value.lastName) user.lastName = value.lastName;
         if (value.phone) user.phone = value.phone;
+        if (value.whatsappNumber !== undefined) user.whatsappNumber = value.whatsappNumber;
+        if (value.whatsappNotificationsEnabled !== undefined) user.whatsappNotificationsEnabled = value.whatsappNotificationsEnabled;
+        if (value.locale) user.locale = value.locale;
 
         await user.save({ validateBeforeSave: true });
 
@@ -126,7 +130,6 @@ exports.changePassword = async (req, res, next) => {
             return next(new AppError('user.passwordUpdateForbidden', 403));
         }
 
-        // MODIFIÉ : Utilise la nouvelle méthode correctPassword
         if (!(await user.correctPassword(currentPassword, user.password))) {
             return next(new AppError('auth.currentPasswordInvalid', 401));
         }
@@ -142,7 +145,6 @@ exports.changePassword = async (req, res, next) => {
         next(error);
     }
 };
-
 
 /**
  * @desc    Supprimer le profil de l'utilisateur connecté
@@ -452,7 +454,7 @@ exports.getRecommendedProducts = async (req, res, next) => {
                 isAvailable: true
             })
             .limit(5)
-            .populate('product', 'name shop images') // Popule le produit parent pour plus de détails
+            .populate('product', 'name shop images')
             .populate('product.shop', 'name')
             .populate('product.category', 'name')
             .populate('product.brand', 'name');
@@ -484,49 +486,154 @@ exports.getRecommendedProducts = async (req, res, next) => {
 };
 
 /**
- * @desc    Obtenir les messages envoyés par l'admin à l'utilisateur ou à son rôle
- * @route   GET /api/users/me/messages
+ * @desc    Obtenir les messages envoyés par l'admin à l'utilisateur ou à son rôle (Notifications In-App)
+ * @route   GET /api/users/me/notifications
  * @access  Private (User)
  */
-exports.getAdminMessages = async (req, res, next) => {
+exports.getAdminMessages = async (req, res, next) => { // Renommée en getNotifications pour plus de clarté
     try {
         const userId = req.user.id;
-        const userRoles = req.user.roles;
+        // const userRoles = req.user.roles; // Plus nécessaire car le service de notification a déjà filtré
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
 
         const query = {
-            $or: [
-                { recipientType: 'all' },
-                { recipientType: 'user', recipientUser: userId },
-                ...(userRoles.includes('buyer') ? [{ recipientType: 'buyer' }] : []),
-                ...(userRoles.includes('seller') ? [{ recipientType: 'seller' }] : []),
-            ]
+            recipient: userId, // La notification est spécifiquement pour cet utilisateur
         };
 
-        const messages = await AdminMessage.find(query)
+        const notifications = await Notification.find(query)
             .populate('sender', 'username email')
             .sort('-sentAt')
             .skip(skip)
             .limit(limit);
 
-        const totalMessages = await AdminMessage.countDocuments(query);
+        const totalNotifications = await Notification.countDocuments(query);
 
         res.status(200).json({
             success: true,
-            message: req.t('user.messagesRetrieved'),
-            count: messages.length,
-            total: totalMessages,
+            message: req.t('user.notificationsRetrieved'),
+            count: notifications.length,
+            total: totalNotifications,
             page,
-            pages: Math.ceil(totalMessages / limit),
-            data: messages
+            pages: Math.ceil(totalNotifications / limit),
+            data: notifications
         });
 
     } catch (error) {
         next(error);
     }
 };
+
+/**
+ * @desc    Marquer une notification comme lue
+ * @route   PUT /api/users/me/notifications/:id/read
+ * @access  Private (User)
+ */
+exports.markNotificationAsRead = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const notification = await Notification.findOneAndUpdate(
+            { _id: id, recipient: req.user.id }, // S'assurer que l'utilisateur est le destinataire
+            { isRead: true },
+            { new: true }
+        );
+
+        if (!notification) {
+            return next(new AppError('user.notificationNotFound', 404));
+        }
+
+        res.status(200).json({
+            success: true,
+            message: req.t('user.markNotificationReadSuccess'),
+            data: notification
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Effacer toutes les notifications de l'utilisateur
+ * @route   DELETE /api/users/me/notifications
+ * @access  Private (User)
+ */
+exports.clearAllNotifications = async (req, res, next) => {
+    try {
+        await Notification.deleteMany({ recipient: req.user.id });
+
+        res.status(200).json({
+            success: true,
+            message: req.t('user.clearAllNotificationsSuccess')
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Mettre à jour les préférences de notifications WhatsApp de l'utilisateur
+ * @route   PUT /api/users/me/whatsapp-preferences
+ * @access  Private (User)
+ */
+exports.updateWhatsappPreferences = async (req, res, next) => {
+    try {
+        const { whatsappNumber, whatsappNotificationsEnabled, locale } = req.body; // AJOUTÉ : locale pour la MAJ
+
+        // Validation des champs reçus
+        const validationSchema = Joi.object({
+            whatsappNumber: Joi.string().pattern(/^\+?\d{8,15}$/).optional().allow(null, ''),
+            whatsappNotificationsEnabled: Joi.boolean().optional(),
+            locale: Joi.string().valid(...SUPPORTED_LOCALES).optional(), // AJOUTÉ : Validation de la locale
+        }).min(1); // Au moins un champ doit être fourni
+
+        const { error, value } = validationSchema.validate(req.body);
+        if (error) {
+            error.statusCode = 400;
+            error.isJoi = true;
+            return next(error);
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return next(new AppError('user.notFound', 404));
+        }
+
+        let updated = false;
+        if (value.whatsappNumber !== undefined) {
+            user.whatsappNumber = value.whatsappNumber;
+            updated = true;
+        }
+        if (value.whatsappNotificationsEnabled !== undefined) {
+            user.whatsappNotificationsEnabled = value.whatsappNotificationsEnabled;
+            updated = true;
+        }
+        if (value.locale !== undefined) { // AJOUTÉ : Mise à jour de la locale
+            user.locale = value.locale;
+            updated = true;
+        }
+
+        if (!updated) {
+            return next(new AppError('errors.validationError', 400, ['Aucune préférence WhatsApp ou locale valide fournie.']));
+        }
+
+        await user.save({ validateBeforeSave: true }); // Valider avec tous les validateurs
+
+        res.status(200).json({
+            success: true,
+            message: req.t('user.whatsappPreferencesUpdated'),
+            data: {
+                whatsappNumber: user.whatsappNumber,
+                whatsappNotificationsEnabled: user.whatsappNotificationsEnabled,
+                locale: user.locale
+            }
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
 
 /**
  * @desc    Upload et mise à jour de la photo de profil de l'utilisateur
@@ -544,18 +651,17 @@ exports.uploadProfilePicture = async (req, res, next) => {
             return next(new AppError('user.notFound', 404));
         }
 
-        // Supprimer l'ancienne photo de profil de Cloudinary si elle existe
         if (user.profilePicture) {
             const publicId = user.profilePicture.split('/').pop().split('.')[0];
-            await cloudinary.uploader.destroy(`5kl_user_profile_pictures/${publicId}`); // Nouveau dossier Cloudinary
+            await cloudinary.uploader.destroy(`5kl_user_profile_pictures/${publicId}`);
         }
 
-        user.profilePicture = req.file.path; // URL de la nouvelle image Cloudinary
+        user.profilePicture = req.file.path;
         await user.save({ validateBeforeSave: false });
 
         res.status(200).json({
             success: true,
-            message: req.t('user.profilePictureUploaded'), // Nouvelle clé
+            message: req.t('user.profilePictureUploaded'),
             data: user.profilePicture
         });
 
@@ -583,18 +689,18 @@ exports.deleteProfilePicture = async (req, res, next) => {
         }
 
         if (!user.profilePicture) {
-            return next(new AppError('user.noProfilePicture', 404)); // Nouvelle clé
+            return next(new AppError('user.noProfilePicture', 404));
         }
 
         const publicId = user.profilePicture.split('/').pop().split('.')[0];
         await cloudinary.uploader.destroy(`5kl_user_profile_pictures/${publicId}`);
 
-        user.profilePicture = undefined; // Supprime le champ
+        user.profilePicture = undefined;
         await user.save({ validateBeforeSave: false });
 
         res.status(200).json({
             success: true,
-            message: req.t('user.profilePictureDeleted') // Nouvelle clé
+            message: req.t('user.profilePictureDeleted')
         });
 
     } catch (error) {

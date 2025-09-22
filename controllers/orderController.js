@@ -7,15 +7,17 @@ const ProductVariation = require('../models/ProductVariation');
 const StockMovement = require('../models/StockMovement');
 const CurrencyRate = require('../models/CurrencyRate');
 const AppError = require('../utils/appError');
+const { sendNotification, sendNotificationToAdmin } = require('../utils/notificationService'); // AJOUTÉ : Service de notification
 const Joi = require('joi');
 const { SUPPORTED_CURRENCIES } = require('../utils/i18n');
 
-// --- Schemas de Validation Joi ---
 
+// --- Schemas de Validation Joi ---
 const createOrderSchema = Joi.object({
     shippingAddressId: Joi.string().hex().length(24).required(),
     currency: Joi.string().valid(...SUPPORTED_CURRENCIES).default('FC').optional()
 }).options({ stripUnknown: true });
+
 
 // --- Fonctions Utilitaires pour la Devise (inchangé) ---
 async function convertPrice(priceFC, targetCurrency, req) {
@@ -27,16 +29,9 @@ async function convertPrice(priceFC, targetCurrency, req) {
         if (!currencyRate || !currencyRate.USD_TO_FC_RATE) {
             const defaultRate = 2700;
             if (req && req.user && req.user.id) {
-                // S'assurer qu'il y a un Admin pour créer le taux par défaut s'il n'existe pas
-                const adminUser = await User.findOne({ roles: 'admin' });
-                if (adminUser) {
-                    await CurrencyRate.create({ USD_TO_FC_RATE: defaultRate, lastUpdatedBy: adminUser._id });
-                } else {
-                    console.warn('Default CurrencyRate created without an admin user ID. Please create an admin user.');
-                    await CurrencyRate.create({ USD_TO_FC_RATE: defaultRate });
-                }
+                await CurrencyRate.create({ USD_TO_FC_RATE: defaultRate, lastUpdatedBy: req.user.id });
             } else {
-                console.warn('Default CurrencyRate used without user ID in a public context or pre-auth. Consider proper initialization.');
+                console.warn('Default CurrencyRate created without user ID. Consider setting up a default admin.');
             }
             return priceFC / defaultRate;
         }
@@ -87,19 +82,9 @@ exports.createOrder = async (req, res, next) => {
         if (currency === 'USD') {
             const currentRateDoc = await CurrencyRate.findOne();
             if (!currentRateDoc || !currentRateDoc.USD_TO_FC_RATE) {
-                // Tenter de créer un taux par défaut si inexistant
-                const defaultRate = 2700;
-                const adminUser = await User.findOne({ roles: 'admin' });
-                if (adminUser) {
-                    currentRateDoc = await CurrencyRate.create({ USD_TO_FC_RATE: defaultRate, lastUpdatedBy: adminUser._id });
-                } else {
-                    console.warn('Default CurrencyRate created during order creation without an admin user ID. Please create an admin user.');
-                    currentRateDoc = await CurrencyRate.create({ USD_TO_FC_RATE: defaultRate });
-                }
-                exchangeRate = currentRateDoc.USD_TO_FC_RATE;
-            } else {
-                exchangeRate = currentRateDoc.USD_TO_FC_RATE;
+                return next(new AppError('admin.currencyRateNotFound', 500));
             }
+            exchangeRate = currentRateDoc.USD_TO_FC_RATE;
         }
 
         let totalAmount = 0;
@@ -143,7 +128,7 @@ exports.createOrder = async (req, res, next) => {
                 type: 'out',
                 quantity: cartItem.quantity,
                 reason: 'vente',
-                reference: 'ORDER_PENDING',
+                // reference sera mis à jour avec l'ID de commande après création
                 movedBy: req.user.id,
                 currentStock: variation.stock - cartItem.quantity
             });
@@ -178,6 +163,30 @@ exports.createOrder = async (req, res, next) => {
             movement.reference = order._id.toString();
             await StockMovement.create(movement);
         }
+
+        // AJOUTÉ : Notifications
+        await sendNotificationToAdmin({
+            senderId: req.user.id,
+            type: 'new_order_request',
+            titleKey: 'common.notification.newOrderTitle',
+            messageKey: 'common.notification.orderCreatedWhatsApp',
+            messageArgs: [order._id.toString().slice(-8), req.user.firstName || req.user.username, order.items.length, order.totalAmount, order.currency],
+            relatedEntity: { id: order._id, relatedEntityType: 'Order' },
+            sendWhatsapp: true
+        });
+        await sendNotification({
+            recipientId: req.user.id,
+            senderId: null, // Système
+            type: 'order_status',
+            titleKey: 'common.notification.orderCreatedTitle',
+            messageKey: 'order.created',
+            messageArgs: [order._id.toString().slice(-8)],
+            relatedEntity: { id: order._id, relatedEntityType: 'Order' },
+            sendWhatsapp: true
+        });
+        order.notifications.push(...(await Notification.find({ relatedEntity: { id: order._id, relatedEntityType: 'Order' } })).map(n => n._id));
+        await order.save({ validateBeforeSave: false });
+
 
         res.status(201).json({
             success: true,
@@ -273,6 +282,30 @@ exports.cancelOrder = async (req, res, next) => {
             });
             await Product.findById(item.product).then(p => p.updateAggregatedData());
         }
+
+        // AJOUTÉ : Notifications
+        await sendNotificationToAdmin({
+            senderId: req.user.id,
+            type: 'order_status',
+            titleKey: 'common.notification.orderCancelledTitle',
+            messageKey: 'common.notification.orderCancelledWhatsApp',
+            messageArgs: [order._id.toString().slice(-8)],
+            relatedEntity: { id: order._id, relatedEntityType: 'Order' },
+            sendWhatsapp: true
+        });
+        await sendNotification({
+            recipientId: req.user.id,
+            senderId: req.user.id,
+            type: 'order_status',
+            titleKey: 'common.notification.orderCancelledTitle',
+            messageKey: 'order.cancelled',
+            messageArgs: [order._id.toString().slice(-8)],
+            relatedEntity: { id: order._id, relatedEntityType: 'Order' },
+            sendWhatsapp: true
+        });
+        order.notifications.push(...(await Notification.find({ relatedEntity: { id: order._id, relatedEntityType: 'Order' } })).map(n => n._id));
+        await order.save({ validateBeforeSave: false });
+
 
         res.status(200).json({
             success: true,

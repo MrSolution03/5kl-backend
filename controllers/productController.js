@@ -1,49 +1,46 @@
 // 5kl-backend/controllers/productController.js
 const Product = require('../models/Product');
-const ProductVariation = require('../models/ProductVariation'); // AJOUTÉ
-const StockMovement = require('../models/StockMovement');     // AJOUTÉ
+const ProductVariation = require('../models/ProductVariation');
+const StockMovement = require('../models/StockMovement');
 const Shop = require('../models/Shop');
 const Category = require('../models/Category');
 const Brand = require('../models/Brand');
 const User = require('../models/User');
 const CurrencyRate = require('../models/CurrencyRate');
 const AppError = require('../utils/appError');
-const Joi = require('joi');
-const { upload, cloudinary } = require('../utils/cloudinary');
+const Joi = require('joi'); 
+const { upload, cloudinary } = require('../utils/cloudinary'); 
 const { SUPPORTED_CURRENCIES } = require('../utils/i18n');
 
 
 // --- Schemas de Validation Joi ---
 
-// Schéma pour le produit parent (sans prix ni stock)
 const productSchema = Joi.object({
     name: Joi.string().trim().min(3).max(255).required(),
     description: Joi.string().trim().min(10).max(2000).required(),
-    images: Joi.array().items(Joi.string().uri()).optional().default([]), // Images générales du produit
+    images: Joi.array().items(Joi.string().uri()).optional().default([]),
     category: Joi.string().hex().length(24).required(),
     subCategory: Joi.string().hex().length(24).optional().allow(null, ''),
     brand: Joi.string().hex().length(24).optional().allow(null, ''),
-    attributes: Joi.array().items(Joi.object({ // Attributs qui définiront les variations
+    attributes: Joi.array().items(Joi.object({
         key: Joi.string().trim().required(),
         value: Joi.string().trim().required()
     })).optional().default([]),
 });
 
-// Schéma pour une variation de produit
 const productVariationSchema = Joi.object({
     sku: Joi.string().trim().alphanum().min(3).max(50).required(),
     attributes: Joi.array().items(Joi.object({
         key: Joi.string().trim().required(),
         value: Joi.string().trim().required()
-    })).min(1).required(), // Une variation doit avoir au moins un attribut
+    })).min(1).required(),
     price: Joi.number().min(0.01).required(),
     stock: Joi.number().integer().min(0).required(),
-    images: Joi.array().items(Joi.string().uri()).optional().default([]), // Images spécifiques à la variation
+    images: Joi.array().items(Joi.string().uri()).optional().default([]),
     isAvailable: Joi.boolean().optional().default(true),
     lowStockThreshold: Joi.number().integer().min(0).optional().default(10)
 });
 
-// Schéma pour la mise à jour d'une variation
 const updateProductVariationSchema = Joi.object({
     sku: Joi.string().trim().alphanum().min(3).max(50).optional(),
     attributes: Joi.array().items(Joi.object({
@@ -56,7 +53,6 @@ const updateProductVariationSchema = Joi.object({
     lowStockThreshold: Joi.number().integer().min(0).optional()
 }).options({ stripUnknown: true });
 
-// Schéma pour les mouvements de stock
 const stockMovementSchema = Joi.object({
     type: Joi.string().valid('in', 'out', 'adjustment').required(),
     quantity: Joi.number().integer().min(1).required(),
@@ -65,7 +61,6 @@ const stockMovementSchema = Joi.object({
 });
 
 
-// Schemas de Catégorie et Marque inchangés
 const categorySchema = Joi.object({
     name: Joi.string().trim().min(2).max(100).required(),
     parentCategory: Joi.string().hex().length(24).optional().allow(null, ''),
@@ -92,7 +87,6 @@ async function convertPrice(priceFC, targetCurrency, req) {
             if (req && req.user && req.user.id) {
                 await CurrencyRate.create({ USD_TO_FC_RATE: defaultRate, lastUpdatedBy: req.user.id });
             } else {
-                // Log un avertissement si un taux par défaut est créé sans user_id (ex: requêtes publiques)
                 console.warn('Default CurrencyRate created without user ID. Consider setting up a default admin.');
             }
             return priceFC / defaultRate;
@@ -101,6 +95,7 @@ async function convertPrice(priceFC, targetCurrency, req) {
     }
     throw new AppError('order.invalidCurrency', 400);
 }
+
 
 // --- Fonctions des Contrôleurs ---
 
@@ -151,7 +146,7 @@ exports.createProduct = async (req, res, next) => {
             category,
             subCategory,
             brand,
-            attributes, // Les attributs généraux du produit
+            attributes,
             shop: shop._id,
         });
 
@@ -210,26 +205,18 @@ exports.getProducts = async (req, res, next) => {
             query.shop = shp._id;
         }
 
-        // Filtre par disponibilité (basé sur le champ agrégé du produit)
         if (isAvailable !== undefined) {
             query.isAvailable = isAvailable === 'true';
         }
 
-        // Les filtres minPrice/maxPrice doivent être adaptés pour la conversion,
-        // mais pour la recherche de base, nous les utilisons sur les champs agrégés du produit (minPrice/maxPrice des variations)
         if (minPrice || maxPrice) {
-            query.minPrice = {}; // Ou query.maxPrice en fonction de l'intention
+            query.minPrice = {};
             if (minPrice) query.minPrice.$gte = parseFloat(minPrice);
             if (maxPrice) query.maxPrice.$lte = parseFloat(maxPrice);
-            // NOTE: Une conversion ici pour minPrice/maxPrice si la requête est en USD serait plus complexe
-            // et nécessiterait de diviser minPrice/maxPrice par le taux avant la requête MongoDB.
         }
 
-        // Filtrage par attributs improvisés, si géré directement sur le Product
         for (const key in filterAttributes) {
             if (!['page', 'limit', 'sortBy', 'name', 'category', 'subCategory', 'brand', 'shop', 'minPrice', 'maxPrice', 'isAvailable', 'targetCurrency'].includes(key)) {
-                // Cette logique de filtrage par attributs devrait plutôt cibler les variations
-                // Pour l'instant, elle restera simple pour le produit parent
                 query[`attributes.key`] = key;
                 query[`attributes.value`] = filterAttributes[key];
             }
@@ -259,17 +246,16 @@ exports.getProducts = async (req, res, next) => {
 
         const totalProducts = await Product.countDocuments(query);
 
-        // Pas besoin de convertir le prix ici, car nous affichons minPrice/maxPrice qui sont déjà agrégés
-        // La conversion se fera quand on affichera les variations d'un produit spécifique.
-        const convertedProducts = products.map(async product => {
-            // Ici, nous voulons afficher les prix min/max de chaque produit dans la devise cible
+        const convertedProducts = await Promise.all(products.map(async (product) => {
+            const convertedMinPrice = await convertPrice(product.minPrice, targetCurrency, req);
+            const convertedMaxPrice = await convertPrice(product.maxPrice, targetCurrency, req);
             return {
                 ...product.toObject(),
-                minPrice: parseFloat( (product.minPrice ? await convertPrice(product.minPrice, targetCurrency, req) : 0).toFixed(2)),
-                maxPrice: parseFloat( (product.maxPrice ? await convertPrice(product.maxPrice, targetCurrency, req) : 0).toFixed(2)),
+                minPrice: parseFloat(convertedMinPrice.toFixed(2)),
+                maxPrice: parseFloat(convertedMaxPrice.toFixed(2)),
                 currency: targetCurrency
             };
-        });
+        }));
 
 
         res.status(200).json({
@@ -308,20 +294,14 @@ exports.getProductById = async (req, res, next) => {
             return next(new AppError('product.notFound', 404));
         }
 
-        // Récupérer et populer les variations du produit
         const variations = await ProductVariation.find({ product: product._id });
 
-        // Mettre à jour les produits récemment consultés de l'utilisateur (si l'utilisateur est connecté)
         if (req.user && req.user.id) {
             const user = await User.findById(req.user.id);
             if (user) {
-                // Logique pour les variations, pas le produit parent
-                // Pour l'instant, on ne log pas une visite du produit parent, mais une visite d'une variation spécifique
-                // Cette logique serait plus pertinente si un utilisateur clique sur une variation en particulier.
-                // Ici, pour simplifier, nous mettons à jour avec le PREMIER produit variation s'il existe.
                 if (variations.length > 0) {
                      user.lastViewedVariations = user.lastViewedVariations.filter(
-                        item => item.variation.toString() !== variations[0]._id.toString()
+                        item => item.variation && item.variation.toString() !== variations[0]._id.toString()
                     );
                     user.lastViewedVariations.push({ variation: variations[0]._id, timestamp: Date.now() });
                     user.lastViewedVariations = user.lastViewedVariations.slice(-10);
@@ -330,7 +310,6 @@ exports.getProductById = async (req, res, next) => {
             }
         }
 
-        // Appliquer la conversion de devise aux variations
         const convertedVariations = await Promise.all(variations.map(async (variation) => {
             const convertedPrice = await convertPrice(variation.price, targetCurrency, req);
             return {
@@ -340,13 +319,12 @@ exports.getProductById = async (req, res, next) => {
             };
         }));
 
-        // Retourner le produit avec ses variations converties
         res.status(200).json({
             success: true,
             data: {
                 ...product.toObject(),
                 variations: convertedVariations,
-                currency: targetCurrency // Indiquer la devise de toutes les variations
+                currency: targetCurrency
             },
         });
     } catch (error) {
@@ -374,12 +352,10 @@ exports.updateProduct = async (req, res, next) => {
             return next(new AppError('product.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }
 
-        // Vérifier l'existence de la catégorie si modifiée
         if (value.category && value.category !== product.category.toString()) {
             const foundCategory = await Category.findById(value.category);
             if (!foundCategory) {
@@ -387,7 +363,6 @@ exports.updateProduct = async (req, res, next) => {
             }
         }
 
-        // Vérifier l'existence de la sous-catégorie si modifiée et fournie
         if (value.subCategory && value.subCategory !== product.subCategory?.toString()) {
             const foundSubCategory = await Category.findById(value.subCategory);
             if (!foundSubCategory || (value.category && foundSubCategory.parentCategory && foundSubCategory.parentCategory.toString() !== value.category) || (!value.category && foundSubCategory.parentCategory && foundSubCategory.parentCategory.toString() !== product.category.toString())) {
@@ -397,7 +372,6 @@ exports.updateProduct = async (req, res, next) => {
             product.subCategory = undefined;
         }
 
-        // Vérifier l'existence de la marque si modifiée et fournie
         if (value.brand && value.brand !== product.brand?.toString()) {
             const foundBrand = await Brand.findById(value.brand);
             if (!foundBrand) {
@@ -412,7 +386,6 @@ exports.updateProduct = async (req, res, next) => {
             runValidators: true,
         }).populate('category subCategory brand shop');
 
-        // Après la mise à jour du produit, mettez à jour ses données agrégées si nécessaire
         await product.updateAggregatedData();
 
 
@@ -439,29 +412,26 @@ exports.deleteProduct = async (req, res, next) => {
             return next(new AppError('product.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }
 
-        // Supprimer toutes les images du produit de Cloudinary
         for (const imageUrl of product.images) {
             const publicId = imageUrl.split('/').pop().split('.')[0];
             await cloudinary.uploader.destroy(`5kl_ecommerce/${publicId}`);
         }
 
-        // Supprimer toutes les variations de ce produit et leurs images spécifiques
         const variationsToDelete = await ProductVariation.find({ product: product._id });
         for (const variation of variationsToDelete) {
             for (const imageUrl of variation.images) {
                 const publicId = imageUrl.split('/').pop().split('.')[0];
                 await cloudinary.uploader.destroy(`5kl_ecommerce/${publicId}`);
             }
-            await StockMovement.deleteMany({ variation: variation._id }); // Supprimer les mouvements de stock associés
+            await StockMovement.deleteMany({ variation: variation._id });
             await variation.deleteOne();
         }
 
-        await product.deleteOne(); // Supprimer le produit parent
+        await product.deleteOne();
 
         await Shop.findByIdAndUpdate(product.shop, { $pull: { products: product._id } });
 
@@ -578,12 +548,10 @@ exports.createProductVariation = async (req, res, next) => {
             return next(new AppError('product.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }
 
-        // Vérifier si une variation avec les mêmes attributs existe déjà pour ce produit
         const existingVariation = await ProductVariation.findOne({
             product: productId,
             'attributes': { $all: value.attributes.map(attr => ({ $elemMatch: attr })) }
@@ -598,7 +566,6 @@ exports.createProductVariation = async (req, res, next) => {
             product: productId
         });
 
-        // Mettre à jour les données agrégées du produit parent
         await product.updateAggregatedData();
 
 
@@ -638,7 +605,7 @@ exports.getProductVariations = async (req, res, next) => {
 
 /**
  * @desc    Obtenir une variation spécifique par ID
- * @route   GET /api/product-variations/:id
+ * @route   GET /api/product-variations/:id?targetCurrency=USD
  * @access  Public
  */
 exports.getProductVariationById = async (req, res, next) => {
@@ -656,7 +623,6 @@ exports.getProductVariationById = async (req, res, next) => {
             return next(new AppError('productVariation.notFound', 404));
         }
 
-        // Appliquer la conversion de devise
         const convertedPrice = await convertPrice(variation.price, targetCurrency, req);
 
         const convertedVariation = {
@@ -665,16 +631,17 @@ exports.getProductVariationById = async (req, res, next) => {
             currency: targetCurrency
         };
 
-        // Mettre à jour les produits récemment consultés de l'utilisateur (si l'utilisateur est connecté)
         if (req.user && req.user.id) {
             const user = await User.findById(req.user.id);
             if (user) {
-                user.lastViewedVariations = user.lastViewedVariations.filter(
-                    item => item.variation.toString() !== variation._id.toString()
-                );
-                user.lastViewedVariations.push({ variation: variation._id, timestamp: Date.now() });
-                user.lastViewedVariations = user.lastViewedVariations.slice(-10);
-                await user.save({ validateBeforeSave: false });
+                if (variation) {
+                     user.lastViewedVariations = user.lastViewedVariations.filter(
+                        item => item.variation && item.variation.toString() !== variation._id.toString()
+                    );
+                    user.lastViewedVariations.push({ variation: variation._id, timestamp: Date.now() });
+                    user.lastViewedVariations = user.lastViewedVariations.slice(-10);
+                    await user.save({ validateBeforeSave: false });
+                }
             }
         }
 
@@ -709,12 +676,10 @@ exports.updateProductVariation = async (req, res, next) => {
             return next(new AppError('productVariation.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (variation.product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }
 
-        // Vérifier l'unicité du SKU si modifié
         if (value.sku && value.sku !== variation.sku) {
             const existingVariation = await ProductVariation.findOne({ sku: value.sku });
             if (existingVariation && existingVariation._id.toString() !== variation._id.toString()) {
@@ -722,12 +687,11 @@ exports.updateProductVariation = async (req, res, next) => {
             }
         }
 
-        // Si les attributs sont modifiés, vérifier l'unicité avec d'autres variations du même produit
         if (value.attributes && JSON.stringify(value.attributes) !== JSON.stringify(variation.attributes)) {
             const existingVariationWithAttributes = await ProductVariation.findOne({
                 product: variation.product._id,
                 'attributes': { $all: value.attributes.map(attr => ({ $elemMatch: attr })) },
-                _id: { $ne: variation._id } // Exclure la variation actuelle
+                _id: { $ne: variation._id }
             });
             if (existingVariationWithAttributes) {
                 return next(new AppError('productVariation.alreadyExists', 400));
@@ -738,7 +702,6 @@ exports.updateProductVariation = async (req, res, next) => {
         Object.assign(variation, value);
         await variation.save({ runValidators: true });
 
-        // Mettre à jour les données agrégées du produit parent
         await variation.product.updateAggregatedData();
 
 
@@ -766,21 +729,18 @@ exports.deleteProductVariation = async (req, res, next) => {
             return next(new AppError('productVariation.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (variation.product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }
 
-        // Supprimer les images spécifiques à cette variation de Cloudinary
         for (const imageUrl of variation.images) {
             const publicId = imageUrl.split('/').pop().split('.')[0];
             await cloudinary.uploader.destroy(`5kl_ecommerce/${publicId}`);
         }
 
-        await StockMovement.deleteMany({ variation: variation._id }); // Supprimer les mouvements de stock associés
+        await StockMovement.deleteMany({ variation: variation._id });
         await variation.deleteOne();
 
-        // Mettre à jour les données agrégées du produit parent
         await variation.product.updateAggregatedData();
 
 
@@ -807,7 +767,6 @@ exports.uploadProductVariationImages = async (req, res, next) => {
             return next(new AppError('productVariation.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (variation.product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }
@@ -850,7 +809,6 @@ exports.removeProductVariationImage = async (req, res, next) => {
             return next(new AppError('productVariation.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (variation.product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }
@@ -900,7 +858,6 @@ exports.recordStockMovement = async (req, res, next) => {
             return next(new AppError('productVariation.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (variation.product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }
@@ -908,9 +865,9 @@ exports.recordStockMovement = async (req, res, next) => {
         let newStock = variation.stock;
         if (type === 'in') {
             newStock += quantity;
-        } else if (type === 'out' || type === 'adjustment') { // 'out' for manual out, 'adjustment' for negative adjustment
-            if (newStock < quantity && type === 'out') { // Ne pas autoriser le stock négatif pour les sorties directes
-                return next(new AppError('productVariation.validation.notEnoughStockForMovement', 400, [variation.product.name, variation.attributes.map(a => a.value).join(', '), variation.stock, quantity])); // Nouvelle clé
+        } else if (type === 'out' || type === 'adjustment') {
+            if (newStock < quantity && type === 'out') {
+                return next(new AppError('productVariation.validation.notEnoughStockForMovement', 400, [variation.product.name, variation.attributes.map(a => a.value).join(', '), variation.stock, quantity]));
             }
             newStock -= quantity;
         } else {
@@ -931,7 +888,6 @@ exports.recordStockMovement = async (req, res, next) => {
             currentStock: newStock
         });
 
-        // Mettre à jour les données agrégées du produit parent
         await variation.product.updateAggregatedData();
 
 
@@ -952,7 +908,7 @@ exports.recordStockMovement = async (req, res, next) => {
  */
 exports.getStockMovements = async (req, res, next) => {
     try {
-        const { id } = req.params; // ID de la variation
+        const { id } = req.params;
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 10;
         const skip = (page - 1) * limit;
@@ -962,7 +918,6 @@ exports.getStockMovements = async (req, res, next) => {
             return next(new AppError('productVariation.notFound', 404));
         }
 
-        // Vérifier l'autorisation
         if (variation.product.shop.toString() !== req.user.shop.toString() && !req.user.roles.includes('admin')) {
             return next(new AppError('product.forbidden', 403));
         }

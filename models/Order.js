@@ -2,12 +2,12 @@
 const mongoose = require('mongoose');
 
 const orderItemSchema = new mongoose.Schema({
-    product: { // AJOUTÉ : Référence au produit parent pour une facilité de population
+    product: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Product',
         required: true
     },
-    productVariation: { // MODIFIÉ : Référence à la variation de produit commandée
+    productVariation: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'ProductVariation',
         required: true
@@ -17,7 +17,7 @@ const orderItemSchema = new mongoose.Schema({
         required: true,
         min: 1
     },
-    pricePaid: { // Le prix final réellement payé pour cet article
+    pricePaid: {
         type: Number,
         required: true,
         min: 0
@@ -33,7 +33,7 @@ const orderSchema = new mongoose.Schema({
         required: true
     },
     items: [orderItemSchema],
-    totalAmount: { // Montant total de la commande
+    totalAmount: {
         type: Number,
         required: true,
         min: 0
@@ -81,7 +81,11 @@ const orderSchema = new mongoose.Schema({
     offer: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Offer'
-    }
+    },
+    notifications: [{ // AJOUTÉ : Pour lier les notifications directement à la commande
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Notification'
+    }]
 }, {
     timestamps: true
 });

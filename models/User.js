@@ -2,7 +2,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { translate, DEFAULT_LOCALE } = require('../utils/i18n');
+const { translate, DEFAULT_LOCALE } = require('../utils/i18n'); // Importez translate pour les messages de validation
 
 const userSchema = new mongoose.Schema({
     username: {
@@ -17,7 +17,7 @@ const userSchema = new mongoose.Schema({
         unique: true,
         trim: true,
         lowercase: true,
-        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, function() { return translate(DEFAULT_LOCALE, 'auth.invalidEmail'); }] // Utilisez 'auth.invalidEmail' ou 'errors.invalidEmail'
+        match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, function() { return translate(DEFAULT_LOCALE, 'auth.invalidEmail'); }]
     },
     password: {
         type: String,
@@ -40,6 +40,21 @@ const userSchema = new mongoose.Schema({
     phone: {
         type: String,
         trim: true
+    },
+    whatsappNumber: { // AJOUTÉ : Numéro de téléphone pour WhatsApp
+        type: String,
+        trim: true,
+        sparse: true,
+        match: [/^\+?\d{8,15}$/, function() { return translate(DEFAULT_LOCALE, 'user.invalidWhatsappNumber'); }] // Validation simple
+    },
+    whatsappNotificationsEnabled: { // AJOUTÉ : Préférence pour les notifications WhatsApp
+        type: Boolean,
+        default: false
+    },
+    locale: { // AJOUTÉ : Préférence de langue de l'utilisateur
+        type: String,
+        enum: ['fr', 'en', 'sw'], // Doit correspondre à vos locales supportées
+        default: 'fr'
     },
     addresses: [{
         street: { type: String, required: [true, function() { return translate(DEFAULT_LOCALE, 'user.address.streetRequired'); }], trim: true },
@@ -86,39 +101,35 @@ const userSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
-    profilePicture: { // AJOUTÉ : Pour la photo de profil de l'utilisateur
+    profilePicture: {
         type: String,
-        default: null // URL de l l'image Cloudinary
+        default: null
     }
 }, {
     timestamps: true
 });
 
 userSchema.pre('save', async function (next) {
-    // Si le mot de passe n'a pas été modifié ou n'existe pas (ex: OAuth), passer
     if (!this.isModified('password') || !this.password) {
         return next();
     }
-    // Hacher le mot de passe
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
     next();
 });
 
-// MODIFIÉ : Renommé en correctPassword pour être plus sémantique
 userSchema.methods.correctPassword = async function (candidatePassword, userPassword) {
     if (!userPassword) return false;
     return await bcrypt.compare(candidatePassword, userPassword);
 };
 
-// Méthode pour générer un token de réinitialisation de mot de passe
 userSchema.methods.getResetPasswordToken = function() {
     const resetToken = crypto.randomBytes(20).toString('hex');
     this.resetPasswordToken = crypto
         .createHash('sha256')
         .update(resetToken)
         .digest('hex');
-    this.resetPasswordExpires = Date.now() + parseInt(process.env.JWT_COOKIE_EXPIRES_IN, 10) * 24 * 60 * 60 * 1000; // Utilise JWT_COOKIE_EXPIRES_IN pour l'expiration du token
+    this.resetPasswordExpires = Date.now() + parseInt(process.env.JWT_COOKIE_EXPIRES_IN, 10) * 24 * 60 * 60 * 1000;
     return resetToken;
 };
 
