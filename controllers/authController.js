@@ -1,12 +1,11 @@
 // 5kl-backend/controllers/authController.js
 const User = require('../models/User');
-const { createSendToken } = require('../utils/authUtils'); // MODIFIÉ : Importe createSendToken
+const { createSendToken } = require('../utils/authUtils');
 const Joi = require('joi');
 const AppError = require('../utils/appError');
-// const bcrypt = require('bcryptjs'); // Non directement utilisé ici car user.correctPassword est une méthode du modèle
 const sendEmail = require('../utils/sendEmail');
 const crypto = require('crypto');
-const { DEFAULT_LOCALE, SUPPORTED_LOCALES } = require('../utils/i18n'); // AJOUTÉ : Pour les locales supportées
+const { DEFAULT_LOCALE, SUPPORTED_LOCALES } = require('../utils/i18n');
 
 // --- Schemas de Validation Joi ---
 const registerSchema = Joi.object({
@@ -16,9 +15,9 @@ const registerSchema = Joi.object({
     firstName: Joi.string().optional(),
     lastName: Joi.string().optional(),
     phone: Joi.string().optional(),
-    whatsappNumber: Joi.string().pattern(/^\+?\d{8,15}$/).optional().allow(null, ''), // AJOUTÉ
-    whatsappNotificationsEnabled: Joi.boolean().optional().default(false),           // AJOUTÉ
-    locale: Joi.string().valid(...SUPPORTED_LOCALES).optional().default(DEFAULT_LOCALE), // AJOUTÉ
+    whatsappNumber: Joi.string().pattern(/^\+?\d{8,15}$/).optional().allow(null, ''),
+    whatsappNotificationsEnabled: Joi.boolean().optional().default(false),
+    locale: Joi.string().valid(...SUPPORTED_LOCALES).optional().default(DEFAULT_LOCALE),
     roles: Joi.array().items(Joi.string().valid('buyer', 'seller')).default(['buyer']),
 });
 
@@ -53,7 +52,7 @@ exports.register = async (req, res, next) => {
             return next(error);
         }
 
-        const { username, email, password, firstName, lastName, phone, whatsappNumber, whatsappNotificationsEnabled, locale, roles } = value; // AJOUTÉ : nouveaux champs
+        const { username, email, password, firstName, lastName, phone, whatsappNumber, whatsappNotificationsEnabled, locale, roles } = value;
 
         let user = await User.findOne({ email });
         if (user) {
@@ -74,14 +73,13 @@ exports.register = async (req, res, next) => {
             firstName,
             lastName,
             phone,
-            whatsappNumber,               // AJOUTÉ
-            whatsappNotificationsEnabled, // AJOUTÉ
-            locale,                       // AJOUTÉ
+            whatsappNumber,
+            whatsappNotificationsEnabled,
+            locale,
             roles,
             isEmailVerified: false
         });
 
-        // Utilise la nouvelle fonction pour envoyer le token
         createSendToken(user, 201, req, res);
 
     } catch (error) {
@@ -95,31 +93,44 @@ exports.register = async (req, res, next) => {
  * @access  Public
  */
 exports.login = async (req, res, next) => {
+    console.log('--- AuthController.login HIT ---'); // Log au début de la fonction
     try {
         const { error, value } = loginSchema.validate(req.body);
         if (error) {
+            console.log('Login validation error:', error.details); // Log d'erreur Joi
             error.statusCode = 400;
             error.isJoi = true;
             return next(error);
         }
 
         const { email, password } = value;
+        console.log('Attempting login for email:', email); // Log de l'email tenté
 
         const user = await User.findOne({ email }).select('+password');
+        console.log('User found in DB:', !!user); // Vérifie si l'utilisateur existe
 
         if (!user || !(await user.correctPassword(password, user.password))) {
+            console.log('Login failed: Invalid email or password or user not found.'); // Log d'échec d'authentification
             return next(new AppError('auth.invalidCredentials', 401));
         }
+        console.log('Password is correct.'); // Log de succès de vérification de mot de passe
 
         // Vérifier si l'utilisateur est banni
         if (user.isBanned) {
+            console.log('Login failed: User is banned.'); // Log d'utilisateur banni
             return next(new AppError('auth.userBanned', 403, [user.bannedReason || req.t('auth.defaultBanReason')]));
         }
+        console.log('User is not banned.'); // Log de vérification du bannissement
 
+        console.log('Calling createSendToken...'); // Log avant d'appeler createSendToken
         createSendToken(user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
+        console.log('createSendToken executed. Response should be sent.'); // Log après createSendToken
+
     } catch (error) {
+        console.error('--- AuthController.login CATCH ERROR ---', error); // Log toute erreur non gérée
         next(error);
     }
+    console.log('--- AuthController.login END (after try/catch) ---'); // Log à la fin de la fonction
 };
 
 /**
@@ -138,7 +149,7 @@ exports.googleCallback = (req, res, next) => {
         return res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(req.t('auth.userBanned', bannedReason))}`);
     }
 
-    createSendToken(req.user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
+    createSendToken(req.user, 200, req, res);
 };
 
 /**
@@ -157,7 +168,7 @@ exports.facebookCallback = (req, res, next) => {
         return res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(req.t('auth.userBanned', bannedReason))}`);
     }
 
-    createSendToken(req.user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
+    createSendToken(req.user, 200, req, res);
 };
 
 /**
@@ -245,7 +256,7 @@ exports.resetPassword = async (req, res, next) => {
         user.resetPasswordExpires = undefined;
         await user.save();
 
-        createSendToken(user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
+        createSendToken(user, 200, req, res);
 
     } catch (error) {
         next(error);
