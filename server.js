@@ -18,7 +18,7 @@ dotenv.config();
 
 // Configuration CORS
 const allowedOrigins = [
-    'http://localhost:8080', // AJOUTÉ POUR LE DÉBOGAGE LOCAL DU FRONTEND
+    'http://localhost:5173', // AJOUTÉ POUR LE DÉBOGAGE LOCAL DU FRONTEND
     process.env.FRONTEND_URL, // L'URL de votre frontend déployé
 ];
 
