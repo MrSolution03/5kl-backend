@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const { protect, authorize } = require('../middlewares/authMiddleware');
+const { upload } = require('../utils/cloudinary'); // AJOUTÉ pour l'upload de photo de profil
 
 // Toutes les routes ici nécessitent que l'utilisateur soit connecté (acheteur, vendeur, admin)
 router.use(protect);
@@ -33,8 +34,12 @@ router.delete('/me/history/offers', authorize('buyer'), userController.archiveOf
 // Routes pour les recommandations
 router.get('/me/recommendations', authorize('buyer'), userController.getRecommendedProducts);
 
-// AJOUTÉ : Routes pour les messages envoyés par l'admin à l'utilisateur
+// Routes pour les messages envoyés par l'admin à l'utilisateur
 router.get('/me/messages', userController.getAdminMessages);
+
+// AJOUTÉ : Routes pour la photo de profil
+router.put('/me/profile-picture', upload.single('profilePicture'), userController.uploadProfilePicture);
+router.delete('/me/profile-picture', userController.deleteProfilePicture);
 
 
 // Routes accessibles uniquement par l'administrateur (inchangées)

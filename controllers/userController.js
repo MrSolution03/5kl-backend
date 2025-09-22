@@ -3,12 +3,15 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 const Offer = require('../models/Offer');
 const Product = require('../models/Product');
-const AdminMessage = require('../models/AdminMessage'); // AJOUTÉ : pour récupérer les messages de l'admin
+const AdminMessage = require('../models/AdminMessage');
+const ProductVariation = require('../models/ProductVariation'); // Pour les recommandations
 const Joi = require('joi');
 const AppError = require('../utils/appError');
-const bcrypt = require('bcryptjs');
+// const bcrypt = require('bcryptjs'); // Non directement utilisé ici car user.correctPassword est une méthode du modèle
+const { upload, cloudinary } = require('../utils/cloudinary'); // AJOUTÉ : pour l'upload de photo de profil
 
-// Validation schema for updating user profile (unchanged)
+
+// --- Validation schema for updating user profile (inchangé) ---
 const updateUserSchema = Joi.object({
     username: Joi.string().min(3).max(30).optional(),
     firstName: Joi.string().optional(),
@@ -16,7 +19,7 @@ const updateUserSchema = Joi.object({
     phone: Joi.string().optional(),
 });
 
-// Validation schema for adding/updating addresses (unchanged)
+// --- Validation schema for adding/updating addresses (inchangé) ---
 const addressSchema = Joi.object({
     street: Joi.string().required(),
     city: Joi.string().required(),
@@ -26,7 +29,7 @@ const addressSchema = Joi.object({
     isDefault: Joi.boolean().optional().default(false)
 });
 
-// Validation schema for changing password (unchanged)
+// --- Validation schema for changing password (inchangé) ---
 const changePasswordSchema = Joi.object({
     currentPassword: Joi.string().required(),
     newPassword: Joi.string().min(6).required(),
@@ -43,14 +46,11 @@ const changePasswordSchema = Joi.object({
  */
 exports.getMe = async (req, res, next) => {
     try {
-        const user = await User.findById(req.user.id).select('-password');
-        if (!user) {
-            return next(new AppError('user.notFound', 404));
-        }
-
+        // L'utilisateur est déjà attaché à req.user par le middleware 'protect'
+        // Nous nous assurons que le password est retiré par le modèle select: false
         res.status(200).json({
             success: true,
-            data: user
+            data: req.user
         });
     } catch (error) {
         next(error);
@@ -126,7 +126,8 @@ exports.changePassword = async (req, res, next) => {
             return next(new AppError('user.passwordUpdateForbidden', 403));
         }
 
-        if (!(await user.matchPassword(currentPassword))) {
+        // MODIFIÉ : Utilise la nouvelle méthode correctPassword
+        if (!(await user.correctPassword(currentPassword, user.password))) {
             return next(new AppError('auth.currentPasswordInvalid', 401));
         }
 
@@ -307,7 +308,10 @@ exports.getBuyerDashboard = async (req, res, next) => {
         .sort('-createdAt')
         .limit(limit)
         .skip(skip)
-        .populate('items.product', 'name price images');
+        .populate({
+            path: 'items.productVariation',
+            populate: { path: 'product', select: 'name images' }
+        });
 
         const totalOrders = await Order.countDocuments({
             user: userId,
@@ -322,7 +326,10 @@ exports.getBuyerDashboard = async (req, res, next) => {
         .sort('-lastActivity')
         .limit(limit)
         .skip(skip)
-        .populate('product', 'name price images');
+        .populate({
+            path: 'productVariation',
+            populate: { path: 'product', select: 'name images' }
+        });
 
         const totalOffers = await Offer.countDocuments({
             buyer: userId,
@@ -429,38 +436,40 @@ exports.getRecommendedProducts = async (req, res, next) => {
 
         let recommendations = [];
 
-        const lastViewedProductIds = user.lastViewedProducts
+        const lastViewedVariationsIds = user.lastViewedVariations
             .sort((a, b) => b.timestamp - a.timestamp)
             .slice(0, 3)
-            .map(item => item.product);
+            .map(item => item.variation);
 
-        let productsFromSimilarCategories = [];
-        if (lastViewedProductIds.length > 0) {
-            const viewedProducts = await Product.find({ _id: { $in: lastViewedProductIds } });
-            const categories = [...new Set(viewedProducts.map(p => p.category.toString()))];
+        let variationsFromSimilarCategories = [];
+        if (lastViewedVariationsIds.length > 0) {
+            const viewedVariations = await ProductVariation.find({ _id: { $in: lastViewedVariationsIds } }).populate('product');
+            const categories = [...new Set(viewedVariations.map(v => v.product.category.toString()))];
 
-            productsFromSimilarCategories = await Product.find({
-                category: { $in: categories },
-                _id: { $nin: lastViewedProductIds },
+            variationsFromSimilarCategories = await ProductVariation.find({
+                'product.category': { $in: categories },
+                _id: { $nin: lastViewedVariationsIds },
                 isAvailable: true
             })
             .limit(5)
-            .populate('shop', 'name')
-            .populate('category', 'name')
-            .populate('brand', 'name');
+            .populate('product', 'name shop images') // Popule le produit parent pour plus de détails
+            .populate('product.shop', 'name')
+            .populate('product.category', 'name')
+            .populate('product.brand', 'name');
         }
 
-        if (productsFromSimilarCategories.length < 5) {
-            const popularProducts = await Product.find({ isAvailable: true, _id: { $nin: lastViewedProductIds } })
+        if (variationsFromSimilarCategories.length < 5) {
+            const popularVariations = await ProductVariation.find({ isAvailable: true, _id: { $nin: lastViewedVariationsIds } })
                 .sort('-createdAt')
                 .limit(10)
-                .populate('shop', 'name')
-                .populate('category', 'name')
-                .populate('brand', 'name');
+                .populate('product', 'name shop images')
+                .populate('product.shop', 'name')
+                .populate('product.category', 'name')
+                .populate('product.brand', 'name');
 
-            recommendations = [...productsFromSimilarCategories, ...popularProducts].slice(0, 10);
+            recommendations = [...variationsFromSimilarCategories, ...popularVariations].slice(0, 10);
         } else {
-            recommendations = productsFromSimilarCategories;
+            recommendations = variationsFromSimilarCategories;
         }
 
         res.status(200).json({
@@ -473,8 +482,6 @@ exports.getRecommendedProducts = async (req, res, next) => {
         next(error);
     }
 };
-
-// --- AJOUTÉ : Gestion des Messages Utilisateur ---
 
 /**
  * @desc    Obtenir les messages envoyés par l'admin à l'utilisateur ou à son rôle
@@ -514,6 +521,80 @@ exports.getAdminMessages = async (req, res, next) => {
             page,
             pages: Math.ceil(totalMessages / limit),
             data: messages
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Upload et mise à jour de la photo de profil de l'utilisateur
+ * @route   PUT /api/users/me/profile-picture
+ * @access  Private (User)
+ */
+exports.uploadProfilePicture = async (req, res, next) => {
+    try {
+        if (!req.file) {
+            return next(new AppError('errors.noFileUploaded', 400));
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return next(new AppError('user.notFound', 404));
+        }
+
+        // Supprimer l'ancienne photo de profil de Cloudinary si elle existe
+        if (user.profilePicture) {
+            const publicId = user.profilePicture.split('/').pop().split('.')[0];
+            await cloudinary.uploader.destroy(`5kl_user_profile_pictures/${publicId}`); // Nouveau dossier Cloudinary
+        }
+
+        user.profilePicture = req.file.path; // URL de la nouvelle image Cloudinary
+        await user.save({ validateBeforeSave: false });
+
+        res.status(200).json({
+            success: true,
+            message: req.t('user.profilePictureUploaded'), // Nouvelle clé
+            data: user.profilePicture
+        });
+
+    } catch (error) {
+        if (error.message && error.message.includes('file type')) {
+            return next(new AppError('errors.invalidFileType', 400));
+        }
+        if (error.message && error.message.includes('File too large')) {
+            return next(new AppError('errors.fileUploadFailed', 400, ['5MB']));
+        }
+        next(error);
+    }
+};
+
+/**
+ * @desc    Supprimer la photo de profil de l'utilisateur
+ * @route   DELETE /api/users/me/profile-picture
+ * @access  Private (User)
+ */
+exports.deleteProfilePicture = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return next(new AppError('user.notFound', 404));
+        }
+
+        if (!user.profilePicture) {
+            return next(new AppError('user.noProfilePicture', 404)); // Nouvelle clé
+        }
+
+        const publicId = user.profilePicture.split('/').pop().split('.')[0];
+        await cloudinary.uploader.destroy(`5kl_user_profile_pictures/${publicId}`);
+
+        user.profilePicture = undefined; // Supprime le champ
+        await user.save({ validateBeforeSave: false });
+
+        res.status(200).json({
+            success: true,
+            message: req.t('user.profilePictureDeleted') // Nouvelle clé
         });
 
     } catch (error) {

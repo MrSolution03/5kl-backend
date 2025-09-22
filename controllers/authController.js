@@ -1,9 +1,9 @@
 // 5kl-backend/controllers/authController.js
 const User = require('../models/User');
-const generateToken = require('../utils/generateToken');
+const { signToken, createSendToken } = require('../utils/authUtils'); // MODIFIÉ : Importe signToken et createSendToken
 const Joi = require('joi');
 const AppError = require('../utils/appError');
-const bcrypt = require('bcryptjs');
+// const bcrypt = require('bcryptjs'); // Non directement utilisé ici car user.correctPassword est une méthode du modèle
 const sendEmail = require('../utils/sendEmail');
 const crypto = require('crypto');
 
@@ -72,22 +72,9 @@ exports.register = async (req, res, next) => {
             isEmailVerified: false
         });
 
-        const token = generateToken(user._id);
+        // Utilise la nouvelle fonction pour envoyer le token
+        createSendToken(user, 201, req, res);
 
-        res.status(201).json({
-            success: true,
-            message: req.t('auth.registerSuccess'),
-            token,
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                roles: user.roles,
-                isEmailVerified: user.isEmailVerified,
-            },
-        });
     } catch (error) {
         next(error);
     }
@@ -99,9 +86,11 @@ exports.register = async (req, res, next) => {
  * @access  Public
  */
 exports.login = async (req, res, next) => {
+    // console.log('Login attempt for email:', req.body.email); // Log 1 pour débogage
     try {
         const { error, value } = loginSchema.validate(req.body);
         if (error) {
+            // console.log('Login validation error:', error.details[0].message); // Log 2
             error.statusCode = 400;
             error.isJoi = true;
             return next(error);
@@ -111,32 +100,22 @@ exports.login = async (req, res, next) => {
 
         const user = await User.findOne({ email }).select('+password');
 
-        if (!user || !(await user.matchPassword(password))) {
+        // MODIFIÉ : Utilise la nouvelle méthode correctPassword du modèle User
+        if (!user || !(await user.correctPassword(password, user.password))) {
+            // console.log('Password mismatch or user not found for email:', email); // Log 3 & 4
             return next(new AppError('auth.invalidCredentials', 401));
         }
 
-        // AJOUTÉ : Vérifier si l'utilisateur est banni
+        // Vérifier si l'utilisateur est banni
         if (user.isBanned) {
-            return next(new AppError('auth.userBanned', 403, [user.bannedReason || req.t('auth.defaultBanReason')])); // Nouvelle clé 'auth.defaultBanReason'
+            // console.log('Banned user tried to log in:', email); // Log 5
+            return next(new AppError('auth.userBanned', 403, [user.bannedReason || req.t('auth.defaultBanReason')]));
         }
 
-        const token = generateToken(user._id);
-
-        res.status(200).json({
-            success: true,
-            message: req.t('auth.loginSuccess'),
-            token,
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                roles: user.roles,
-                isEmailVerified: user.isEmailVerified,
-            },
-        });
+        // console.log('Login successful for user:', email); // Log 6
+        createSendToken(user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
     } catch (error) {
+        // console.error('Unhandled error during login:', error); // Log 7
         next(error);
     }
 };
@@ -151,31 +130,13 @@ exports.googleCallback = (req, res, next) => {
         return next(new AppError('auth.googleAuthFailed', 401));
     }
 
-    // AJOUTÉ : Vérifier si l'utilisateur est banni (pour OAuth aussi)
+    // Vérifier si l'utilisateur est banni (pour OAuth aussi)
     if (req.user.isBanned) {
-        // Rediriger vers le frontend avec un message d'erreur si l'utilisateur est banni
-        // Ou renvoyer une erreur JSON si la redirection n'est pas possible/souhaitée
         const bannedReason = req.user.bannedReason || req.t('auth.defaultBanReason');
         return res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(req.t('auth.userBanned', bannedReason))}`);
     }
 
-    const token = generateToken(req.user._id);
-
-    res.status(200).json({
-        success: true,
-        message: req.t('auth.googleAuthSuccess'),
-        token,
-        user: {
-            id: req.user._id,
-            username: req.user.username,
-            email: req.user.email,
-            firstName: req.user.firstName,
-            lastName: req.user.lastName,
-            roles: req.user.roles,
-            isEmailVerified: req.user.isEmailVerified,
-        },
-        redirect: '/dashboard'
-    });
+    createSendToken(req.user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
 };
 
 /**
@@ -188,29 +149,13 @@ exports.facebookCallback = (req, res, next) => {
         return next(new AppError('auth.facebookAuthFailed', 401));
     }
 
-    // AJOUTÉ : Vérifier si l'utilisateur est banni (pour OAuth aussi)
+    // Vérifier si l'utilisateur est banni (pour OAuth aussi)
     if (req.user.isBanned) {
         const bannedReason = req.user.bannedReason || req.t('auth.defaultBanReason');
         return res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(req.t('auth.userBanned', bannedReason))}`);
     }
 
-    const token = generateToken(req.user._id);
-
-    res.status(200).json({
-        success: true,
-        message: req.t('auth.facebookAuthSuccess'),
-        token,
-        user: {
-            id: req.user._id,
-            username: req.user.username,
-            email: req.user.email,
-            firstName: req.user.firstName,
-            lastName: req.user.lastName,
-            roles: req.user.roles,
-            isEmailVerified: req.user.isEmailVerified,
-        },
-        redirect: '/dashboard'
-    });
+    createSendToken(req.user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
 };
 
 /**
@@ -298,21 +243,25 @@ exports.resetPassword = async (req, res, next) => {
         user.resetPasswordExpires = undefined;
         await user.save();
 
-        const token = generateToken(user._id);
-
-        res.status(200).json({
-            success: true,
-            message: req.t('auth.passwordResetSuccess'),
-            token,
-            user: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                roles: user.roles,
-            },
-        });
+        createSendToken(user, 200, req, res); // Utilise la nouvelle fonction pour envoyer le token
 
     } catch (error) {
         next(error);
     }
+};
+
+/**
+ * @desc    Déconnecter un utilisateur
+ * @route   GET /api/auth/logout
+ * @access  Private (ou Public, efface juste le cookie)
+ */
+exports.logout = (req, res, next) => {
+    res.cookie('jwt', 'loggedout', {
+        expires: new Date(Date.now() + 10 * 1000), // Expire dans 10 secondes
+        httpOnly: true,
+        secure: req.protocol === 'https' || process.env.NODE_ENV === 'production',
+        sameSite: 'Lax',
+    });
+
+    res.status(200).json({ success: true, message: req.t('auth.logoutSuccess') }); // Nouvelle clé
 };
