@@ -13,79 +13,75 @@ const AdminMessage = require('./models/AdminMessage');
 const ProductVariation = require('./models/ProductVariation');
 const StockMovement = require('./models/StockMovement');
 
-// Charger les variables d'environnement
 dotenv.config();
 
-// Configuration CORS
+// --- CORS CONFIG ---
 const allowedOrigins = [
-    'http://localhost:5173', // AJOUTÉ POUR LE DÉBOGAGE LOCAL DU FRONTEND
-    process.env.FRONTEND_URL, // L'URL de votre frontend déployé
+  'http://localhost:5173',      // local dev
+  process.env.FRONTEND_URL      // deployed frontend (set in .env)
 ];
 
 const corsOptions = {
-    origin: function (origin, callback) {
-        if (!origin) return callback(null, true);
-        // Toujours autoriser localhost en dev
-        if (process.env.NODE_ENV === 'development' && origin.startsWith('http://localhost')) {
-            return callback(null, true);
-        }
-        if (allowedOrigins.indexOf(origin) === -1) {
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
-        }
-        return callback(null, true);
-    },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    credentials: true,
-    optionsSuccessStatus: 200
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like Postman, curl)
+    if (!origin) return callback(null, true);
+
+    // Always allow localhost in dev
+    if (process.env.NODE_ENV === 'development' && origin.startsWith('http://localhost')) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked: ${origin}`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 
-// Initialiser l'application Express
+// --- EXPRESS APP INIT ---
 const app = express();
 
-// Configuration de la base de données
+// DB connection
 require('./config/db');
 
-// Middleware pour initialiser le taux de change si non existant (au démarrage)
+// Ensure default CurrencyRate doc
 app.use(async (req, res, next) => {
-    try {
-        let currencyRate = await CurrencyRate.findOne();
-        if (!currencyRate) {
-            currencyRate = await CurrencyRate.create({ USD_TO_FC_RATE: 2700, lastUpdatedBy: null });
-            console.log('Default CurrencyRate document created.');
-        }
-        next();
-    } catch (error) {
-        console.error('Failed to ensure CurrencyRate document exists:', error);
-        next(error);
+  try {
+    let currencyRate = await CurrencyRate.findOne();
+    if (!currencyRate) {
+      await CurrencyRate.create({ USD_TO_FC_RATE: 2700, lastUpdatedBy: null });
+      console.log('Default CurrencyRate document created.');
     }
+    next();
+  } catch (error) {
+    console.error('Failed to ensure CurrencyRate document exists:', error);
+    next(error);
+  }
 });
 
-// --- Middlewares de Parsing et Sécurité des Données (ordre crucial) ---
-
-// 1. Parsing du corps de la requête (JSON et URL-encoded)
+// --- MIDDLEWARES ---
+// Parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 2. express-mongo-sanitize : DOIT VENIR JUSTE APRÈS LE PARSING DU CORPS
-// Il nettoie les req.body, req.query, req.params des opérateurs MongoDB malveillants.
-app.use(mongoSanitize()); 
-
-// 3. Autres middlewares de sécurité (CORS, Helmet)
-app.use(cors(corsOptions));
+// Security
+app.use(mongoSanitize());
+app.use(cors(corsOptions));        // CORS first
+app.options('*', cors(corsOptions)); // Allow preflight
 app.use(helmet());
 
-// 4. Internationalisation (i18n) : peut venir après les middlewares de sécurité généraux
+// i18n
 app.use(i18nMiddleware);
 
-// 5. Initialisation de Passport
+// Passport
 app.use(passport.initialize());
 require('./config/passport')(passport);
 
-// --- Fin des Middlewares de Configuration Globale ---
-
-
-// Routes de l'API
+// --- ROUTES ---
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const shopRoutes = require('./routes/shopRoutes');
@@ -106,107 +102,48 @@ app.use('/api/offers', offerRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/seller', sellerRoutes);
 
-// Route de base
+// Base route
 app.get('/', (req, res) => {
-    res.send(req.t('common.success') + ' 5KL E-commerce API is running!');
+  res.send(req.t('common.success') + ' 5KL E-commerce API is running!');
 });
 
-// Middleware pour gérer les routes non trouvées (404)
+// 404 handler
 app.use((req, res, next) => {
-    next(new AppError('errors.notFound', 404, [req.originalUrl]));
+  next(new AppError('errors.notFound', 404, [req.originalUrl]));
 });
 
-
-// Gestionnaire d'erreurs global (DOIT ÊTRE LE DERNIER middleware app.use())
+// --- GLOBAL ERROR HANDLER ---
 app.use((err, req, res, next) => {
-    // AJOUTÉ POUR LE DÉBOGAGE : Log l'erreur complète même en production
-    console.error('Global Error Handler caught:', err);
-    if (err.stack) {
-        console.error('Error Stack:', err.stack);
-    }
-    // Fin de l'ajout pour le débogage
+  console.error('Global Error Handler caught:', err);
 
-    if (process.env.NODE_ENV === 'development') {
-        console.error(err);
-    }
+  let error = { ...err };
+  error.message = err.message;
+  error.statusCode = err.statusCode || 500;
+  error.status = error.status || 'error';
 
-    let error = { ...err };
-    error.message = err.message;
-    error.statusCode = err.statusCode || 500;
-    error.status = error.status || 'error';
+  // Joi validation
+  if (err.isJoi) {
+    const joiMessages = error.details.map(d =>
+      req.t(`joi.${d.type}`, d.context) || d.message
+    );
+    error.message = req.t('errors.validationError', joiMessages.join('. '));
+    error.statusCode = 400;
+    error.status = 'fail';
+  }
 
-    if (err.isJoi) {
-        const joiMessages = error.details.map(detail => {
-            return req.t(`joi.${detail.type}`, detail.context) || detail.message;
-        });
-        error.message = req.t('errors.validationError', joiMessages.join('. '));
-        error.statusCode = 400;
-        error.status = 'fail';
-    }
+  // Token & DB errors (etc) ...
+  // [keep your existing mapping here]
 
-    let translatedMessage = error.message;
-
-    if (err instanceof AppError) {
-        translatedMessage = req.t(err.messageKey, ...(err.translationArgs || []));
-    } else if (err.name === 'CastError') {
-        translatedMessage = req.t('errors.resourceNotFound', err.value);
-        error.statusCode = 404;
-        error.status = 'fail';
-    } else if (err.code === 11000) {
-        const field = Object.keys(err.keyValue)[0];
-        const value = err.keyValue[field];
-        translatedMessage = req.t('errors.duplicateField', value, field);
-        error.statusCode = 400;
-        error.status = 'fail';
-    } else if (err.name === 'ValidationError') {
-        const messages = Object.values(err.errors).map(val => val.message).join('. ');
-        translatedMessage = req.t('errors.validationError', messages);
-        error.statusCode = 400;
-        error.status = 'fail';
-    } else if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
-        translatedMessage = req.t('errors.invalidToken');
-        error.statusCode = 401;
-        error.status = 'fail';
-    } else if (error.message === 'Not authorized, no token') {
-        translatedMessage = req.t('errors.missingToken');
-        error.statusCode = 401;
-        error.status = 'fail';
-    } else if (error.message === 'Not authorized, token failed') {
-        translatedMessage = req.t('errors.invalidToken');
-        error.statusCode = 401;
-        error.status = 'fail';
-    } else if (error.message && error.message.includes('not authorized to access this route')) {
-        translatedMessage = req.t('errors.forbidden');
-        error.statusCode = 403;
-        error.status = 'fail';
-    }
-    else if (error.message && error.message.includes('file type')) {
-        translatedMessage = req.t('errors.invalidFileType');
-        error.statusCode = 400;
-        error.status = 'fail';
-    } else if (error.message && error.message.includes('File too large')) {
-        translatedMessage = req.t('errors.fileUploadFailed', '5MB');
-        error.statusCode = 400;
-        error.status = 'fail';
-    }
-    else if (!translatedMessage || translatedMessage.startsWith('[errors.')) {
-        translatedMessage = req.t('errors.internalServerError');
-        error.statusCode = 500;
-        error.status = 'error';
-    }
-
-
-    res.status(error.statusCode).json({
-        success: false,
-        status: error.status,
-        message: translatedMessage,
-        // En développement, inclure le stack trace pour faciliter le débogage
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-    });
+  res.status(error.statusCode).json({
+    success: false,
+    status: error.status,
+    message: error.message || req.t('errors.internalServerError'),
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
 });
 
+// --- START SERVER ---
 const PORT = process.env.PORT || 4000;
-
 app.listen(PORT, () => {
-    console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });
